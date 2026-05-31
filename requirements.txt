@@ -1,0 +1,25 @@
+# Core
+python-dotenv>=1.0.1
+
+# Content generation — Claude API
+anthropic>=0.49.0
+pydantic>=2.6.0
+
+# Thumbnails — Google Imagen 4 Fast
+google-genai>=1.0.0
+
+# Database — Supabase
+supabase>=2.7.0
+
+# Video + HTTP
+httpx>=0.27.0
+
+# Publishing
+requests>=2.31.0
+requests-oauthlib>=2.0.0          # X / Twitter OAuth 1.0a
+google-api-python-client>=2.130.0  # YouTube Data API v3
+google-auth>=2.30.0                # YouTube OAuth credentials
+
+# Scheduling
+APScheduler>=3.10.4
+tzdata>=2024.1                     # zoneinfo data (Windows / slim images)

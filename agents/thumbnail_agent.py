@@ -1,0 +1,120 @@
+"""Thumbnail agent — image generation via Google Imagen 4 Fast.
+
+Uses the official ``google-genai`` SDK against the
+``imagen-4.0-fast-generate-001`` model. The returned PNG bytes are
+written to disk locally; in production you'd typically upload them to
+Supabase Storage (or any CDN) and store the public URL on the post.
+
+This module keeps the upload step pluggable: ``_persist`` returns a URL or
+local path so the rest of the pipeline only deals with a string.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import tempfile
+
+from core.config import Config, config
+from core.models import Post, PostStatus
+
+logger = logging.getLogger(__name__)
+
+# Aspect ratios that suit each platform's primary feed.
+_ASPECT_RATIO = {
+    "instagram": "1:1",
+    "twitter": "16:9",
+    "linkedin": "1:1",
+    "youtube": "16:9",
+    "tiktok": "9:16",
+}
+
+
+def _build_prompt(post: Post, brand_name: str) -> str:
+    """Turn a post into a clean, on-brand image prompt."""
+    subject = post.topic or post.title or post.pillar
+    return (
+        f"A premium, minimal, editorial photograph for {brand_name}, "
+        f"theme: {post.pillar}. Subject: {subject}. "
+        "Clean composition, soft natural light, modern technology in a "
+        "beautifully lived-in space, warm and confident mood, high detail, "
+        "no text, no watermark, no logo."
+    )
+
+
+class ThumbnailAgent:
+    """Generates a thumbnail image for a post using Imagen 4 Fast."""
+
+    def __init__(self, cfg: Config = config, output_dir: str | None = None) -> None:
+        cfg.require("google_api_key")
+        self._cfg = cfg
+        self._output_dir = output_dir or os.path.join(tempfile.gettempdir(), "btl_thumbnails")
+        os.makedirs(self._output_dir, exist_ok=True)
+
+        from google import genai  # lazy import
+
+        self._genai = genai
+        self._client = genai.Client(api_key=cfg.google_api_key)
+
+        # Prefer Supabase Storage (public URLs) when credentials are present;
+        # fall back to writing locally otherwise.
+        self._storage = None
+        if cfg.supabase_url and cfg.supabase_key:
+            try:
+                from core.storage import get_storage
+
+                self._storage = get_storage(cfg)
+            except Exception:
+                logger.warning(
+                    "Supabase Storage unavailable; thumbnails will be saved locally",
+                    exc_info=True,
+                )
+
+    def generate(self, post: Post) -> Post:
+        """Generate a thumbnail and set ``post.thumbnail_url`` in place."""
+        from google.genai import types
+
+        prompt = _build_prompt(post, self._cfg.brand_name)
+        aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
+
+        try:
+            response = self._client.models.generate_images(
+                model=self._cfg.imagen_model,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio=aspect_ratio,
+                ),
+            )
+        except Exception:
+            logger.exception("Imagen generation failed for post %s", post.id)
+            raise
+
+        images = getattr(response, "generated_images", None) or []
+        if not images:
+            raise RuntimeError("Imagen returned no images (possibly blocked by safety filters)")
+
+        image_bytes = images[0].image.image_bytes
+        url = self._persist(post, image_bytes)
+        post.thumbnail_url = url
+        # Don't downgrade status if media (video) handling sets it later;
+        # MEDIA_READY signals at least one media asset exists.
+        post.mark(PostStatus.MEDIA_READY)
+        logger.info("Generated thumbnail for post %s -> %s", post.id, url)
+        return post
+
+    def _persist(self, post: Post, image_bytes: bytes) -> str:
+        """Persist image bytes and return a public URL or local path.
+
+        Uploads to Supabase Storage when configured (returning a public
+        URL the publishing APIs can fetch), otherwise writes to disk.
+        """
+        if self._storage is not None:
+            return self._storage.upload(
+                f"thumbnails/{post.id}.png", image_bytes, content_type="image/png"
+            )
+
+        path = os.path.join(self._output_dir, f"{post.id}.png")
+        with open(path, "wb") as fh:
+            fh.write(image_bytes)
+        return path

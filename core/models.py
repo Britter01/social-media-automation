@@ -1,0 +1,167 @@
+"""Domain data models.
+
+These are the in-memory representations the agents pass around. They map
+cleanly to Supabase rows (see ``core.database``) and to the structured
+output the content agent returns.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+
+class Pillar(StrEnum):
+    """The five content pillars for Brite Tech Lifestyle."""
+
+    AI_GUIDE = "AI Guide"
+    TECH_LIFESTYLE = "Tech Lifestyle"
+    PRODUCTIVITY = "Productivity"
+    FITNESS_TECH = "Fitness Tech"
+    REVIEW = "Review"
+
+
+class Platform(StrEnum):
+    """Supported publishing destinations."""
+
+    INSTAGRAM = "instagram"
+    TWITTER = "twitter"
+    LINKEDIN = "linkedin"
+    YOUTUBE = "youtube"
+    TIKTOK = "tiktok"
+
+
+class PostStatus(StrEnum):
+    """Lifecycle of a post as it moves through the pipeline."""
+
+    DRAFT = "draft"  # created, awaiting content
+    CONTENT_READY = "content_ready"
+    MEDIA_READY = "media_ready"  # thumbnail and/or video generated
+    SCHEDULED = "scheduled"  # has a scheduled time, awaiting publish
+    PUBLISHING = "publishing"
+    PUBLISHED = "published"
+    FAILED = "failed"
+
+
+@dataclass
+class Brand:
+    """The brand the system creates content for."""
+
+    name: str
+    founder: str
+    tagline: str
+    voice: str = "Clear, confident, warm. Never patronising. Short sentences."
+    pillars: list[str] = field(default_factory=lambda: [p.value for p in Pillar])
+    platforms: list[str] = field(default_factory=lambda: [p.value for p in Platform])
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Post:
+    """A single piece of content moving through the pipeline.
+
+    A ``Post`` starts as a draft (pillar + topic), gains a caption and
+    hashtags from the content agent, then media URLs from the thumbnail
+    and video agents, a scheduled time from the scheduler, and finally a
+    platform post id once published.
+    """
+
+    pillar: str
+    platform: str
+    topic: str = ""
+    caption: str = ""
+    hashtags: list[str] = field(default_factory=list)
+    title: str = ""
+    thumbnail_url: str | None = None
+    video_url: str | None = None
+    status: str = PostStatus.DRAFT.value
+    scheduled_time: datetime | None = None
+    published_time: datetime | None = None
+    platform_post_id: str | None = None
+    error: str | None = None
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    # --- Convenience -----------------------------------------------------
+
+    @property
+    def caption_with_hashtags(self) -> str:
+        """The caption with hashtags appended, ready to publish."""
+        if not self.hashtags:
+            return self.caption
+        tags = " ".join(tag if tag.startswith("#") else f"#{tag}" for tag in self.hashtags)
+        return f"{self.caption}\n\n{tags}".strip()
+
+    def mark(self, status: PostStatus, error: str | None = None) -> None:
+        """Transition status and bump ``updated_at``."""
+        self.status = status.value
+        self.error = error
+        self.updated_at = datetime.now(UTC)
+
+    # --- Serialisation ---------------------------------------------------
+
+    def to_row(self) -> dict[str, Any]:
+        """Serialise to a Supabase-friendly dict (ISO timestamps)."""
+        return {
+            "id": self.id,
+            "pillar": self.pillar,
+            "platform": self.platform,
+            "topic": self.topic,
+            "caption": self.caption,
+            "hashtags": self.hashtags,
+            "title": self.title,
+            "thumbnail_url": self.thumbnail_url,
+            "video_url": self.video_url,
+            "status": self.status,
+            "scheduled_time": _iso(self.scheduled_time),
+            "published_time": _iso(self.published_time),
+            "platform_post_id": self.platform_post_id,
+            "error": self.error,
+            "created_at": _iso(self.created_at),
+            "updated_at": _iso(self.updated_at),
+        }
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> Post:
+        """Rehydrate a ``Post`` from a Supabase row."""
+        return cls(
+            id=row.get("id") or str(uuid.uuid4()),
+            pillar=row["pillar"],
+            platform=row["platform"],
+            topic=row.get("topic", ""),
+            caption=row.get("caption", ""),
+            hashtags=list(row.get("hashtags") or []),
+            title=row.get("title", ""),
+            thumbnail_url=row.get("thumbnail_url"),
+            video_url=row.get("video_url"),
+            status=row.get("status", PostStatus.DRAFT.value),
+            scheduled_time=_parse(row.get("scheduled_time")),
+            published_time=_parse(row.get("published_time")),
+            platform_post_id=row.get("platform_post_id"),
+            error=row.get("error"),
+            created_at=_parse(row.get("created_at")) or datetime.now(UTC),
+            updated_at=_parse(row.get("updated_at")) or datetime.now(UTC),
+        )
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _parse(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    # Supabase returns ISO 8601; tolerate a trailing Z.
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
