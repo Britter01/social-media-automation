@@ -230,7 +230,9 @@ def test_run_auto_generates_when_approval_disabled(base_config):
 
     posts = agent.run()
 
-    assert [p.topic for p in posts] == ["great"]
+    # "great" generates an Instagram post + a Facebook cross-post = 2
+    assert all(p.topic == "great" for p in posts)
+    assert {p.platform for p in posts} == {"instagram", "facebook"}
     content_agent.generate.assert_called_once()
 
 
@@ -249,8 +251,10 @@ def test_generate_for_approved_pulls_approved_topics(base_config):
     posts = agent.generate_for_approved()
 
     db.topics_by_status.assert_called_once_with(TopicStatus.APPROVED, limit=50)
-    assert len(posts) == 1
-    assert posts[0].topic == "approved one"
+    # Instagram topic generates Instagram post + Facebook cross-post = 2
+    assert len(posts) == 2
+    assert all(p.topic == "approved one" for p in posts)
+    assert {p.platform for p in posts} == {"instagram", "facebook"}
     # The topic is marked used and persisted.
     db.upsert_topic.assert_called()
 

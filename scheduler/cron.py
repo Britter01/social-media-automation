@@ -28,6 +28,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from agents.carousel_agent import CarouselAgent
 from agents.content_agent import ContentAgent
 from agents.publisher_agent import PublisherAgent
 from agents.research_agent import ResearchAgent
@@ -163,6 +164,9 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
     # lands on a different day rather than all stacking on the same slot.
     last_slot: dict[str, datetime] = {}
 
+    carousel_agent = _safe_init(CarouselAgent, "carousel")
+    configured_platforms = set(config.configured_platforms())
+
     scheduled = 0
     for post in posts:
         try:
@@ -175,6 +179,45 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
             else:
                 db.upsert(post)
             scheduled += 1
+
+            # Generate carousel variant for Instagram/Facebook posts.
+            # Scheduled after the regular post so the two don't compete.
+            if carousel_agent and post.platform in (
+                Platform.INSTAGRAM.value, Platform.FACEBOOK.value
+            ):
+                try:
+                    carousel = carousel_agent.create_from_post(post)
+                    carousel_after = last_slot.get(post.platform)
+                    scheduler_agent.schedule(carousel, after=carousel_after)
+                    last_slot[post.platform] = carousel.scheduled_time
+                    db.insert(carousel)
+                    scheduled += 1
+                    logger.info("Created carousel variant for post %s", post.id)
+
+                    # Cross-post carousel to Facebook if Instagram was the source.
+                    if (
+                        post.platform == Platform.INSTAGRAM.value
+                        and Platform.FACEBOOK.value in configured_platforms
+                    ):
+                        fb_carousel = Post(
+                            pillar=carousel.pillar,
+                            platform=Platform.FACEBOOK.value,
+                            topic=carousel.topic,
+                            caption=carousel.caption,
+                            hashtags=list(carousel.hashtags),
+                            title=carousel.title,
+                            thumbnail_url=carousel.thumbnail_url,
+                            post_type="carousel",
+                            slides=list(carousel.slides),
+                        )
+                        fb_after = last_slot.get(Platform.FACEBOOK.value)
+                        scheduler_agent.schedule(fb_carousel, after=fb_after)
+                        last_slot[Platform.FACEBOOK.value] = fb_carousel.scheduled_time
+                        db.insert(fb_carousel)
+                        scheduled += 1
+                except Exception:
+                    logger.exception("Carousel creation failed for post %s; continuing", post.id)
+
         except Exception:
             logger.exception("Failed finalising post %s", post.id)
             try:

@@ -197,16 +197,26 @@ with tab_posts:
                             unsafe_allow_html=True,
                         )
                     status = post.get("status", "")
+                    post_type = post.get("post_type", "standard")
                     status_color = "#8B5CF6" if status == "content_ready" else "#EC4899"
+                    type_badge = " 🎠 Carousel" if post_type == "carousel" else ""
                     st.markdown(
                         f"<span style='background:{status_color}22;color:{status_color};"
                         f"border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700'>"
-                        f"{status.replace('_',' ').title()}</span>",
+                        f"{status.replace('_',' ').title()}{type_badge}</span>",
                         unsafe_allow_html=True,
                     )
                     st.markdown(f"**{post.get('title') or post.get('topic','Untitled')}**")
                     st.caption(f"{post.get('pillar','—')} · {post.get('platform','—')}")
-                    if post.get("caption"):
+                    slides = post.get("slides") or []
+                    if slides:
+                        with st.expander(f"Slides ({len(slides)})"):
+                            for j, slide in enumerate(slides):
+                                st.markdown(f"**{j+1}. {slide.get('headline','')}**")
+                                st.caption(slide.get("body",""))
+                                if slide.get("image_url"):
+                                    st.image(slide["image_url"], use_container_width=True)
+                    elif post.get("caption"):
                         with st.expander("Caption"):
                             st.write(post["caption"])
                             if post.get("hashtags"):

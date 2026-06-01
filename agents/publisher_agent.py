@@ -105,6 +105,8 @@ class PublisherAgent:
 
     def _publish_instagram(self, post: Post) -> str:
         self._cfg.require("instagram_access_token", "instagram_business_account_id")
+        if post.post_type == "carousel" and post.slides:
+            return self._publish_instagram_carousel(post)
         if not post.thumbnail_url:
             raise PublishError("Instagram requires an image (thumbnail_url)")
 
@@ -135,10 +137,65 @@ class PublisherAgent:
             publish.raise_for_status()
             return publish.json().get("id", container_id)
 
+    def _publish_instagram_carousel(self, post: Post) -> str:
+        """Publish a carousel post via the Instagram Graph API (3-step flow)."""
+        account = self._cfg.instagram_business_account_id
+        token = self._cfg.instagram_access_token
+        base = f"https://graph.facebook.com/v19.0/{account}"
+
+        with httpx.Client(timeout=120.0) as client:
+            # 1. Create an item container for each slide.
+            item_ids = []
+            for slide in post.slides:
+                image_url = slide.get("image_url", "")
+                if not image_url:
+                    continue
+                resp = client.post(
+                    f"{base}/media",
+                    data={
+                        "image_url": image_url,
+                        "is_carousel_item": "true",
+                        "access_token": token,
+                    },
+                )
+                resp.raise_for_status()
+                item_id = resp.json().get("id")
+                if item_id:
+                    item_ids.append(item_id)
+
+            if len(item_ids) < 2:
+                raise PublishError(f"Instagram carousel needs at least 2 images; got {len(item_ids)}")
+
+            # 2. Create the carousel container.
+            resp = client.post(
+                f"{base}/media",
+                data={
+                    "media_type": "CAROUSEL",
+                    "caption": post.caption_with_hashtags,
+                    "children": ",".join(item_ids),
+                    "access_token": token,
+                },
+            )
+            resp.raise_for_status()
+            carousel_id = resp.json().get("id")
+            if not carousel_id:
+                raise PublishError("Instagram did not return a carousel container id")
+
+            # 3. Publish the carousel.
+            publish = client.post(
+                f"{base}/media_publish",
+                data={"creation_id": carousel_id, "access_token": token},
+            )
+            publish.raise_for_status()
+            return publish.json().get("id", carousel_id)
+
     # --- Facebook Pages (Graph API) -------------------------------------
 
     def _publish_facebook(self, post: Post) -> str:
         self._cfg.require("facebook_page_id", "instagram_access_token")
+        if post.post_type == "carousel" and post.slides:
+            return self._publish_facebook_carousel(post)
+
         page_id = self._cfg.facebook_page_id
         token = self._cfg.instagram_access_token
         base = f"https://graph.facebook.com/v19.0/{page_id}"
@@ -161,6 +218,49 @@ class PublisherAgent:
                         "access_token": token,
                     },
                 )
+            resp.raise_for_status()
+            return resp.json().get("id", "")
+
+    def _publish_facebook_carousel(self, post: Post) -> str:
+        """Publish a multi-image carousel to a Facebook Page."""
+        import json as _json
+
+        page_id = self._cfg.facebook_page_id
+        token = self._cfg.instagram_access_token
+        base = f"https://graph.facebook.com/v19.0/{page_id}"
+
+        with httpx.Client(timeout=120.0) as client:
+            # 1. Upload each slide as an unpublished photo.
+            photo_ids = []
+            for slide in post.slides:
+                image_url = slide.get("image_url", "")
+                if not image_url:
+                    continue
+                resp = client.post(
+                    f"{base}/photos",
+                    data={
+                        "url": image_url,
+                        "published": "false",
+                        "access_token": token,
+                    },
+                )
+                resp.raise_for_status()
+                photo_id = resp.json().get("id")
+                if photo_id:
+                    photo_ids.append({"media_fbid": photo_id})
+
+            if not photo_ids:
+                raise PublishError("Facebook carousel: no slide images could be uploaded")
+
+            # 2. Publish a feed post attaching all photos.
+            resp = client.post(
+                f"{base}/feed",
+                data={
+                    "message": post.caption_with_hashtags,
+                    "attached_media": _json.dumps(photo_ids),
+                    "access_token": token,
+                },
+            )
             resp.raise_for_status()
             return resp.json().get("id", "")
 
