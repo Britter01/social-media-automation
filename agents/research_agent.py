@@ -14,9 +14,13 @@ The pipeline upstream of everything else. In two Claude API calls it:
 The two-call split is deliberate: the search call returns cited prose
 (web search emits citations, which are incompatible with structured
 outputs in a single request), and the scoring call turns that prose into
-clean, validated ``Topic`` objects. The large brand brief is sent as a
-prompt-cached system block, so both calls — and every run — reuse it at
-~0.1x cost after the first.
+clean, validated ``Topic`` objects.
+
+No prompt caching here. Each call runs once per daily run, on different
+models (Haiku then Sonnet), so there's no shared prefix to reuse within
+the cache's 5-minute TTL — caching would only pay the write premium for a
+read that never comes. (Caching lives in the content agent instead, whose
+brand brief is large and reused across a batch of posts.)
 
 Model choice (no Opus anywhere):
   * Discovery runs on ``model_fast`` (Haiku 4.5). It's a high-token,
@@ -304,13 +308,11 @@ class ResearchAgent:
                     # task doesn't need them anyway.
                     model=self._cfg.model_fast,
                     max_tokens=8000,
-                    system=[
-                        {
-                            "type": "text",
-                            "text": self._system,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
+                    # No prompt caching here: discovery is a single call per
+                    # daily run, so there's nothing to reuse within the cache's
+                    # 5-minute TTL — a cache write (~1.25x) would never be read
+                    # back. (The brand brief is also too short to cache anyway.)
+                    system=self._system,
                     tools=[_WEB_SEARCH_TOOL],
                     messages=messages,
                 )
@@ -347,14 +349,10 @@ class ResearchAgent:
                 max_tokens=4000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": "medium"},
-                system=[
-                    {
-                        "type": "text",
-                        "text": self._system,
-                        # Same cached brand brief as the search call.
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
+                # No prompt caching: also a single call per daily run, and on a
+                # different model than discovery, so there's no shared prefix to
+                # reuse. The big input here (the findings) varies every run.
+                system=self._system,
                 messages=[{"role": "user", "content": user_prompt}],
                 output_format=TopicSlate,
             )

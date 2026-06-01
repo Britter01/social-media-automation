@@ -53,6 +53,15 @@ def test_generate_uses_correct_model_and_caching(base_config):
     assert kwargs["output_format"] is GeneratedContent
 
 
+def test_brand_brief_is_large_enough_to_cache(base_config):
+    # Prompt caching only fires when the cached prefix clears the model's
+    # minimum — ~2048 tokens for Sonnet 4.6. At ~4 chars/token that's ~8200
+    # chars; we keep the brief comfortably above that so the cache_control
+    # marker on the content call actually saves money instead of being a no-op.
+    agent = ContentAgent(base_config)
+    assert len(agent._system) > 9000
+
+
 def test_generate_raises_when_no_structured_output(base_config):
     agent = ContentAgent(base_config)
     agent._client = MagicMock()

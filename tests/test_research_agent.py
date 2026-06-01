@@ -69,7 +69,7 @@ def test_discover_searches_then_scores(base_config):
     assert topic.sources == ["https://example.com"]
 
 
-def test_discover_uses_web_search_tool_and_caching(base_config):
+def test_discover_uses_web_search_tool_and_models(base_config):
     agent = _agent(base_config)
     agent._client.messages.create.return_value = _search_response("stuff")
     agent._client.messages.parse.return_value = _slate_response([_scored()])
@@ -78,15 +78,18 @@ def test_discover_uses_web_search_tool_and_caching(base_config):
 
     _, kwargs = agent._client.messages.create.call_args
     assert kwargs["tools"] == [{"type": "web_search_20260209", "name": "web_search"}]
-    assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
     # Discovery runs on the fast (Haiku) tier — and must not send effort,
     # which Haiku 4.5 rejects.
     assert kwargs["model"] == base_config.model_fast
     assert "output_config" not in kwargs
+    # No prompt caching on the research calls (single daily calls, no reuse):
+    # system is a plain string, not a cache_control-tagged block list.
+    assert kwargs["system"] == agent._system
+    assert isinstance(kwargs["system"], str)
 
     _, parse_kwargs = agent._client.messages.parse.call_args
     assert parse_kwargs["output_format"] is TopicSlate
-    assert parse_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert isinstance(parse_kwargs["system"], str)
     # Scoring runs on the creative (Sonnet) tier — never Opus.
     assert parse_kwargs["model"] == base_config.model_creative
     assert "opus" not in agent._cfg.model_fast and "opus" not in agent._cfg.model_creative
