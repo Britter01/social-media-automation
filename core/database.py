@@ -212,6 +212,18 @@ class Database:
             logger.exception("Failed to upsert topic %s", topic.id)
             raise
 
+    def get_topic(self, topic_id: str) -> Topic | None:
+        """Fetch a single topic by id, or None if it doesn't exist."""
+        try:
+            resp = (
+                self._client.table(_TOPICS_TABLE).select("*").eq("id", topic_id).limit(1).execute()
+            )
+            rows = resp.data or []
+            return Topic.from_row(rows[0]) if rows else None
+        except Exception:
+            logger.exception("Failed to fetch topic %s", topic_id)
+            raise
+
     def topics_by_status(self, status: TopicStatus, limit: int = 50) -> list[Topic]:
         """Return topics in a given status, highest-scoring first."""
         try:

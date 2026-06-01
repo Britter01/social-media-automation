@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from agents.research_agent import ResearchAgent, ScoredTopic, TopicSlate
-from core.models import Pillar, Post, PostStatus, Topic, TopicStatus
+from core.models import Pillar, PostStatus, Topic, TopicStatus
 
 
 def _text_block(text):
@@ -162,62 +163,97 @@ def test_select_best_filters_sorts_and_caps(base_config):
     assert topics[0].status == TopicStatus.REJECTED.value
 
 
-# --- run (end to end, agents mocked) ---------------------------------------
+# --- research (discovery + persistence, no content) ------------------------
 
 
-def test_run_persists_topics_and_feeds_content_agent(base_config):
-    content_agent = MagicMock()
-
-    def _generate(post):
-        post.mark(PostStatus.CONTENT_READY)
-        return post
-
-    content_agent.generate.side_effect = _generate
+def test_research_persists_all_and_returns_selected(base_config):
     db = MagicMock()
-
-    agent = _agent(base_config, content_agent=content_agent, db=db)
+    agent = _agent(base_config, db=db)
     agent._client.messages.create.return_value = _search_response("findings")
     agent._client.messages.parse.return_value = _slate_response(
         [
-            _scored(title="great", platform="instagram", score=90),
-            _scored(title="meh", platform="instagram", score=30),  # below default 70
+            _scored(title="great", score=90),
+            _scored(title="meh", score=30),  # below default 70
+        ]
+    )
+
+    selected = agent.research()
+
+    # Both topics persisted (rejected ideas stay auditable); only one selected.
+    assert db.insert_topic.call_count == 2
+    assert [t.title for t in selected] == ["great"]
+    assert selected[0].status == TopicStatus.SELECTED.value
+
+
+# --- run / approval gate ---------------------------------------------------
+
+
+def test_run_awaits_approval_by_default(base_config):
+    content_agent = MagicMock()
+    db = MagicMock()
+    agent = _agent(base_config, content_agent=content_agent, db=db)
+    agent._client.messages.create.return_value = _search_response("findings")
+    agent._client.messages.parse.return_value = _slate_response([_scored(score=90)])
+
+    posts = agent.run()
+
+    # Gate is on by default: topics are stored for review, nothing generated.
+    assert posts == []
+    content_agent.generate.assert_not_called()
+    db.insert_topic.assert_called()
+
+
+def test_run_auto_generates_when_approval_disabled(base_config):
+    cfg = dataclasses.replace(base_config, require_topic_approval=False)
+    content_agent = MagicMock()
+    content_agent.generate.side_effect = lambda post: post.mark(PostStatus.CONTENT_READY)
+    db = MagicMock()
+
+    agent = _agent(cfg, content_agent=content_agent, db=db)
+    agent._client.messages.create.return_value = _search_response("findings")
+    agent._client.messages.parse.return_value = _slate_response(
+        [
+            _scored(title="great", score=90),
+            _scored(title="meh", score=30),
         ]
     )
 
     posts = agent.run()
 
-    # Only the high-scoring topic became a post.
-    assert len(posts) == 1
-    assert isinstance(posts[0], Post)
-    assert posts[0].topic == "great"
+    assert [p.topic for p in posts] == ["great"]
     content_agent.generate.assert_called_once()
-    # Both topics persisted; the used one upserted after content.
-    assert db.insert_topic.call_count == 2
+
+
+# --- generate_for_approved -------------------------------------------------
+
+
+def test_generate_for_approved_pulls_approved_topics(base_config):
+    content_agent = MagicMock()
+    content_agent.generate.side_effect = lambda post: post.mark(PostStatus.CONTENT_READY)
+    db = MagicMock()
+    db.topics_by_status.return_value = [
+        Topic(title="approved one", pillar="Review", platform="instagram", relevance_score=90),
+    ]
+
+    agent = _agent(base_config, content_agent=content_agent, db=db)
+    posts = agent.generate_for_approved()
+
+    db.topics_by_status.assert_called_once_with(TopicStatus.APPROVED, limit=50)
+    assert len(posts) == 1
+    assert posts[0].topic == "approved one"
+    # The topic is marked used and persisted.
     db.upsert_topic.assert_called()
 
 
-def test_run_isolates_content_failures(base_config):
+def test_generate_content_isolates_failures(base_config):
     content_agent = MagicMock()
     content_agent.generate.side_effect = RuntimeError("api down")
     db = MagicMock()
-
     agent = _agent(base_config, content_agent=content_agent, db=db)
-    agent._client.messages.create.return_value = _search_response("findings")
-    agent._client.messages.parse.return_value = _slate_response([_scored(score=90)])
 
-    posts = agent.run()
-
-    assert posts == []  # failure didn't propagate
-    db.insert_topic.assert_called()  # topic still persisted
-
-
-def test_run_without_collaborators_just_returns_no_posts(base_config):
-    agent = _agent(base_config)
-    agent._client.messages.create.return_value = _search_response("findings")
-    agent._client.messages.parse.return_value = _slate_response([_scored(score=90)])
-
-    # No content agent / db injected — discovery runs, nothing is generated.
-    assert agent.run() == []
+    topics = [Topic(title="x", pillar="Review", platform="instagram")]
+    assert agent.generate_content(topics) == []  # failure didn't propagate
+    db.upsert_topic.assert_called()  # status still persisted
 
 
 # --- config / construction -------------------------------------------------

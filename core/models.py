@@ -50,9 +50,10 @@ class TopicStatus(StrEnum):
     """Lifecycle of a researched topic before it becomes a post."""
 
     NEW = "new"  # freshly discovered by the research agent
-    SELECTED = "selected"  # passed the relevance bar, queued for content
+    SELECTED = "selected"  # passed the relevance bar, awaiting human review
+    APPROVED = "approved"  # a human approved it; ready to become a post
     USED = "used"  # a post was generated from it
-    REJECTED = "rejected"  # discarded (below the relevance threshold)
+    REJECTED = "rejected"  # discarded (below the bar, or rejected by a human)
 
 
 @dataclass

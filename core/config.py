@@ -107,8 +107,12 @@ class Config:
     # Minimum brand-relevance score (0-100) a topic must reach to be fed
     # into the content agent. Topics below this are stored but not used.
     min_topic_relevance: int = 70
-    # How many of the highest-scoring topics to turn into posts per run.
+    # How many of the highest-scoring topics to surface per run.
     topics_per_run: int = 3
+    # When True (default), researched topics are stored for human review and
+    # only turned into posts after approval (see scripts/review_topics.py).
+    # Set False to let the research agent generate content automatically.
+    require_topic_approval: bool = True
 
     # Content pillars and target platforms.
     content_pillars: list[str] = field(
@@ -177,6 +181,7 @@ class Config:
             posts_per_run=_get_int("POSTS_PER_RUN", 1),
             min_topic_relevance=_get_int("MIN_TOPIC_RELEVANCE", 70),
             topics_per_run=_get_int("TOPICS_PER_RUN", 3),
+            require_topic_approval=_get_bool("REQUIRE_TOPIC_APPROVAL", True),
         )
 
     def require(self, *names: str) -> None:

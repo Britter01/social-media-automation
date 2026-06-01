@@ -22,7 +22,20 @@ It researches trending topics with the Claude API's web search tool, generates c
         └──────────────── persisted to Supabase as a `posts` row ──┘
 ```
 
-The **research agent** runs first: it uses Claude's server-side web search tool to find trending topics across the brand's themes, scores each for brand fit with structured outputs, stores them in the `topics` table, and turns the highest-scoring ones into draft posts. From there each post moves through statuses: `draft → content_ready → media_ready → scheduled → publishing → published` (or `failed`). The publisher loop picks up any post whose `scheduled_time` has passed. (The 06:00 content pipeline also runs independently as a fallback source of posts.)
+The **research agent** runs first: it uses Claude's server-side web search tool to find trending topics across the brand's themes, scores each for brand fit with structured outputs, and stores them in the `topics` table.
+
+**Human approval gate (on by default).** Researched topics are stored as `selected` (awaiting review), not posted. You review them and approve or reject each:
+
+```bash
+python -m scripts.review_topics                 # list topics awaiting review
+python -m scripts.review_topics --approve 1a2b   # approve by id (prefix is fine)
+python -m scripts.review_topics --reject 9f3c
+python -m scripts.review_topics --interactive    # review one at a time
+```
+
+Approved topics are picked up by the worker (every 15 min) and turned into scheduled posts. Set `REQUIRE_TOPIC_APPROVAL=false` to skip the gate and post automatically.
+
+A topic moves `new → selected → approved → used` (or `rejected`); from approval, each post moves through `draft → content_ready → media_ready → scheduled → publishing → published` (or `failed`). The publisher loop picks up any post whose `scheduled_time` has passed. (The 06:00 content pipeline also runs independently as a fallback source of posts.)
 
 ### Content pillars
 AI Guide · Tech Lifestyle · Productivity · Fitness Tech · Review
@@ -53,6 +66,7 @@ scheduler/
   cron.py          APScheduler worker: content pipeline + publisher loop.
 scripts/
   smoke_test.py    Run one post end-to-end in dry-run mode.
+  review_topics.py Approve/reject researched topics (the human gate).
 tests/             Hermetic pytest suite (external SDKs faked).
 ```
 
@@ -139,7 +153,7 @@ Runs one post through all four stages with publishing forced to dry-run. Stages 
 python scheduler/cron.py
 ```
 
-This is the long-running process. It researches trending topics and seeds content daily at 05:30, generates and schedules a fallback batch at 06:00 (brand timezone), and publishes due posts every 5 minutes. Adjust the cadence in `scheduler/cron.py` (`build_scheduler`).
+This is the long-running process. It researches trending topics daily at 05:30 (stored for review), turns approved topics into scheduled posts every 15 minutes, generates and schedules a fallback batch at 06:00 (brand timezone), and publishes due posts every 5 minutes. Adjust the cadence in `scheduler/cron.py` (`build_scheduler`). Review researched topics with `python -m scripts.review_topics`.
 
 ---
 

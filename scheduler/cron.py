@@ -91,12 +91,13 @@ def run_content_pipeline() -> None:
 
 
 def run_research_pipeline() -> None:
-    """Discover trending topics, generate content for the best, and schedule.
+    """Discover and store trending topics for review.
 
-    The research agent finds and scores topics, persists them, and turns the
-    top picks into content-ready posts. Here we add media, pick a posting
-    slot, and persist each as a scheduled post — reusing the same
-    failure-isolated finalisation as the static content pipeline.
+    The research agent finds, scores, and persists topics. With the
+    approval gate on (the default), selected topics wait as ``selected``
+    for a human to review (``scripts/review_topics``) — nothing is posted
+    here. With the gate off, ``run()`` returns content-ready posts, which
+    we finalise and schedule immediately.
     """
     logger.info("=== Research pipeline starting ===")
     try:
@@ -108,14 +109,54 @@ def run_research_pipeline() -> None:
         logger.exception("Research pipeline could not initialise; skipping run")
         return
 
-    thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
-    video_agent = _safe_init(VideoAgent, "video")
-
     try:
         posts = research_agent.run()
     except Exception:
         logger.exception("Research pipeline failed during discovery; skipping run")
         return
+
+    scheduled = _finalise_posts(posts, db, scheduler_agent)
+    logger.info("=== Research pipeline finished: %d post(s) scheduled ===", scheduled)
+
+
+def run_approved_pipeline() -> None:
+    """Turn human-approved topics into scheduled posts.
+
+    The second half of the gated research flow: pulls topics a human
+    marked ``approved``, generates content, then finalises and schedules
+    each. Runs on a short interval so approvals go live promptly.
+    """
+    try:
+        db = get_database()
+        content_agent = ContentAgent()
+        scheduler_agent = SchedulerAgent()
+        research_agent = ResearchAgent(content_agent=content_agent, db=db)
+    except Exception:
+        logger.exception("Approved-topic pipeline could not initialise; skipping run")
+        return
+
+    try:
+        posts = research_agent.generate_for_approved()
+    except Exception:
+        logger.exception("Approved-topic pipeline failed; skipping run")
+        return
+
+    if not posts:
+        return
+
+    logger.info("Scheduling %d post(s) from approved topics", len(posts))
+    scheduled = _finalise_posts(posts, db, scheduler_agent)
+    logger.info("Approved-topic pipeline finished: %d post(s) scheduled", scheduled)
+
+
+def _finalise_posts(posts: list[Post], db, scheduler_agent) -> int:
+    """Add media, pick a slot, and persist each post; return the count scheduled.
+
+    Failure-isolated per post — one failing post is marked failed and the
+    rest continue.
+    """
+    thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
+    video_agent = _safe_init(VideoAgent, "video")
 
     scheduled = 0
     for post in posts:
@@ -125,13 +166,12 @@ def run_research_pipeline() -> None:
             db.upsert(post)
             scheduled += 1
         except Exception:
-            logger.exception("Failed finalising researched post %s", post.id)
+            logger.exception("Failed finalising post %s", post.id)
             try:
-                db.update_status(post, PostStatus.FAILED, error="research pipeline error")
+                db.update_status(post, PostStatus.FAILED, error="finalise error")
             except Exception:
                 logger.exception("Could not persist failure for post %s", post.id)
-
-    logger.info("=== Research pipeline finished: %d post(s) scheduled ===", scheduled)
+    return scheduled
 
 
 def _generate_media(post: Post, thumbnail_agent, video_agent) -> None:
@@ -210,6 +250,17 @@ def build_scheduler() -> BlockingScheduler:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
+    )
+
+    # Pick up human-approved topics and schedule them every 15 minutes, so
+    # an approval goes live without waiting for the next day's run.
+    scheduler.add_job(
+        run_approved_pipeline,
+        trigger=IntervalTrigger(minutes=15),
+        id="approved_pipeline",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
     )
 
     # Generate and schedule content once a day at 06:00 local.

@@ -168,20 +168,15 @@ class ResearchAgent:
             topic.mark(TopicStatus.SELECTED)
         return chosen
 
-    def run(
-        self,
-        categories: list[str] | None = None,
-        *,
-        persist: bool = True,
-        generate_content: bool = True,
-    ) -> list[Post]:
-        """Run the full research pipeline and return the posts it seeded.
+    def research(self, categories: list[str] | None = None, *, persist: bool = True) -> list[Topic]:
+        """Discover, score, and persist topics; return the selected ones.
 
-        Discovers and scores topics, persists every one (so even rejected
-        ideas are auditable), then turns the best into draft posts via the
-        content agent. A single topic failing never aborts the run.
+        Every topic is persisted (so even rejected ideas are auditable);
+        the ones that clear the relevance bar are marked ``selected`` and
+        returned. This does **not** generate content — with the approval
+        gate on, selected topics wait here for a human to approve them.
         """
-        logger.info("=== Research pipeline starting ===")
+        logger.info("=== Research starting ===")
         topics = self.discover(categories)
         logger.info("Discovered %d topic(s)", len(topics))
 
@@ -194,29 +189,81 @@ class ResearchAgent:
                 except Exception:
                     logger.exception("Could not persist topic %s", topic.id)
 
-        posts: list[Post] = []
-        if generate_content and self._content_agent is not None:
-            for topic in selected:
-                post = topic.to_post()
-                try:
-                    self._content_agent.generate(post)
-                    topic.mark(TopicStatus.USED)
-                    posts.append(post)
-                except Exception:
-                    logger.exception("Content generation failed for topic %s", topic.id)
-                    continue
-                finally:
-                    if persist and self._db is not None:
-                        try:
-                            self._db.upsert_topic(topic)
-                        except Exception:
-                            logger.exception("Could not update topic %s after content", topic.id)
+        logger.info("=== Research finished: %d topic(s) selected ===", len(selected))
+        return selected
 
-        logger.info(
-            "=== Research pipeline finished: %d selected, %d post(s) seeded ===",
-            len(selected),
-            len(posts),
-        )
+    def generate_content(self, topics: list[Topic], *, persist: bool = True) -> list[Post]:
+        """Turn approved/selected topics into content-ready draft posts.
+
+        Each topic becomes a draft post that the content agent fills in.
+        A single topic failing never aborts the batch; successful ones are
+        marked ``used``.
+        """
+        posts: list[Post] = []
+        if self._content_agent is None:
+            logger.warning("No content agent configured; cannot generate content")
+            return posts
+
+        for topic in topics:
+            post = topic.to_post()
+            try:
+                self._content_agent.generate(post)
+                topic.mark(TopicStatus.USED)
+                posts.append(post)
+            except Exception:
+                logger.exception("Content generation failed for topic %s", topic.id)
+                continue
+            finally:
+                if persist and self._db is not None:
+                    try:
+                        self._db.upsert_topic(topic)
+                    except Exception:
+                        logger.exception("Could not update topic %s after content", topic.id)
+
+        return posts
+
+    def generate_for_approved(self, *, persist: bool = True, limit: int = 50) -> list[Post]:
+        """Generate content for topics a human has approved.
+
+        Pulls ``approved`` topics from the database and runs them through
+        :meth:`generate_content`. This is the second half of the gated
+        flow, run after review.
+        """
+        if self._db is None:
+            logger.warning("No database configured; cannot fetch approved topics")
+            return []
+        approved = self._db.topics_by_status(TopicStatus.APPROVED, limit=limit)
+        if not approved:
+            logger.info("No approved topics awaiting content")
+            return []
+        logger.info("Generating content for %d approved topic(s)", len(approved))
+        return self.generate_content(approved, persist=persist)
+
+    def run(
+        self,
+        categories: list[str] | None = None,
+        *,
+        persist: bool = True,
+    ) -> list[Post]:
+        """Run research, then generate content unless approval is required.
+
+        With ``require_topic_approval`` on (the default), selected topics
+        are left awaiting review and no posts are produced — call
+        :meth:`generate_for_approved` after a human approves them. With it
+        off, the best topics are turned into draft posts immediately.
+        """
+        selected = self.research(categories, persist=persist)
+
+        if self._cfg.require_topic_approval:
+            logger.info(
+                "%d topic(s) awaiting approval — review them before they post "
+                "(e.g. `python -m scripts.review_topics`)",
+                len(selected),
+            )
+            return []
+
+        posts = self.generate_content(selected, persist=persist)
+        logger.info("Research seeded %d post(s)", len(posts))
         return posts
 
     # --- Internals -------------------------------------------------------
