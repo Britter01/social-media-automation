@@ -93,7 +93,7 @@ def test_instagram_publish_happy_path(base_config, monkeypatch):
         pillar="Tech Lifestyle",
         platform="instagram",
         caption="Beautiful setup.",
-        thumbnail_url="https://cdn.example/x.png",
+        thumbnail_url="https://qfyqoxpcoinlbxgjsihn.supabase.co/storage/v1/object/public/media/thumbnails/test.png",
     )
     PublisherAgent(base_config).publish(post)
     assert post.status == PostStatus.PUBLISHED.value

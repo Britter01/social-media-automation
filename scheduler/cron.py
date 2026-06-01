@@ -430,6 +430,15 @@ def build_scheduler() -> BlockingScheduler:
 
 def main() -> None:
     configure_logging(config.log_level)
+    if config.dry_run:
+        logger.warning(
+            "DRY_RUN=true — no posts will be published. "
+            "Set DRY_RUN=false in Railway env vars to go live."
+        )
+    else:
+        logger.warning(
+            "DRY_RUN=false — posts WILL be published to live platforms!"
+        )
     logger.info(
         "Starting %s automation worker (tz=%s, dry_run=%s)",
         config.brand_name,

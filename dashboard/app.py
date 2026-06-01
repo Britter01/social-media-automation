@@ -19,6 +19,40 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# --- Authentication ----------------------------------------------------------
+# Password is read from st.secrets["DASHBOARD_PASSWORD"] on Streamlit Cloud,
+# or from the DASHBOARD_PASSWORD env var locally.
+# Set it in the Streamlit Cloud secrets UI before deploying.
+
+def _check_password() -> bool:
+    """Return True once the correct password has been entered."""
+    try:
+        expected = st.secrets.get("DASHBOARD_PASSWORD") or os.getenv("DASHBOARD_PASSWORD", "")
+    except Exception:
+        expected = os.getenv("DASHBOARD_PASSWORD", "")
+
+    if not expected:
+        # No password configured — show a warning and block access
+        st.error("DASHBOARD_PASSWORD is not set. Configure it in Streamlit secrets or env vars.")
+        st.stop()
+
+    if st.session_state.get("authenticated"):
+        return True
+
+    with st.container():
+        st.markdown("### Brite Tech Lifestyle — Dashboard")
+        pwd = st.text_input("Password", type="password", key="pwd_input")
+        if st.button("Sign in"):
+            if pwd == expected:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+    return False
+
+if not _check_password():
+    st.stop()
+
 # --- Supabase ----------------------------------------------------------------
 
 @st.cache_resource

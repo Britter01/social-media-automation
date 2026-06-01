@@ -27,11 +27,44 @@ and are structured so you can slot in storage/upload details for your setup.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import httpx
 
 from core.config import Config, config
+
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+_SUPABASE_HOST_SUFFIX = ".supabase.co"
+_ALLOWED_URL_SCHEMES  = {"https"}
+
+
+def _validate_media_url(url: str | None, label: str = "url") -> str:
+    """Validate that a media URL is an HTTPS Supabase storage URL.
+
+    Raises ``ValueError`` if the URL is empty, not HTTPS, not a local path,
+    or not hosted on Supabase — preventing SSRF via tampered DB values.
+    """
+    if not url:
+        raise ValueError(f"{label} is empty")
+    # Allow local paths only in test / dry-run scenarios
+    if os.path.exists(url):
+        return url
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_URL_SCHEMES:
+        raise ValueError(
+            f"{label} must use HTTPS (got scheme {parsed.scheme!r}): {url!r}"
+        )
+    if not (parsed.netloc.endswith(_SUPABASE_HOST_SUFFIX)):
+        raise ValueError(
+            f"{label} must be a Supabase storage URL "
+            f"(got host {parsed.netloc!r}): {url!r}"
+        )
+    return url
 from core.models import Platform, Post, PostStatus
 
 logger = logging.getLogger(__name__)
@@ -109,6 +142,7 @@ class PublisherAgent:
             return self._publish_instagram_carousel(post)
         if not post.thumbnail_url:
             raise PublishError("Instagram requires an image (thumbnail_url)")
+        _validate_media_url(post.thumbnail_url, label="thumbnail_url")
 
         account = self._cfg.instagram_business_account_id
         token = self._cfg.instagram_access_token
@@ -202,6 +236,7 @@ class PublisherAgent:
 
         with httpx.Client(timeout=60.0) as client:
             if post.thumbnail_url:
+                _validate_media_url(post.thumbnail_url, label="thumbnail_url")
                 resp = client.post(
                     f"{base}/photos",
                     data={
@@ -343,19 +378,24 @@ class PublisherAgent:
         youtube = build("youtube", "v3", credentials=creds)
 
         local_path = self._download_to_temp(post.video_url, post.id)
-        body = {
-            "snippet": {
-                "title": (post.title or post.topic or post.pillar)[:100],
-                "description": post.caption_with_hashtags[:5000],
-                "tags": post.hashtags[:15],
-                "categoryId": "28",  # Science & Technology
-            },
-            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
-        }
-        media = MediaFileUpload(local_path, chunksize=-1, resumable=True)
-        request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
-        response = request.execute()
-        return response.get("id", "")
+        try:
+            body = {
+                "snippet": {
+                    "title": (post.title or post.topic or post.pillar)[:100],
+                    "description": post.caption_with_hashtags[:5000],
+                    "tags": post.hashtags[:15],
+                    "categoryId": "28",  # Science & Technology
+                },
+                "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
+            }
+            media = MediaFileUpload(local_path, chunksize=-1, resumable=True)
+            request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+            response = request.execute()
+            return response.get("id", "")
+        finally:
+            # Always clean up the temp file after upload
+            if local_path and os.path.exists(local_path):
+                os.unlink(local_path)
 
     # --- TikTok (Content Posting API) -----------------------------------
 
@@ -395,18 +435,28 @@ class PublisherAgent:
 
     @staticmethod
     def _download_to_temp(url: str, post_id: str) -> str:
-        """Download a remote media file to a temp path for upload APIs."""
-        import os
-        import tempfile
+        """Download a validated Supabase media URL to a named temp file.
 
-        # Already a local path? Use it directly.
+        Security: validates the URL is HTTPS + Supabase before fetching.
+        Resource: uses a NamedTemporaryFile so callers can delete after use;
+        the path is returned and the caller is responsible for cleanup.
+        """
+        # Already a local path (test / dry-run)? Use it directly.
         if os.path.exists(url):
             return url
 
-        path = os.path.join(tempfile.gettempdir(), f"{post_id}.mp4")
-        with httpx.stream("GET", url, timeout=120.0) as resp:
-            resp.raise_for_status()
-            with open(path, "wb") as fh:
+        _validate_media_url(url, label="video_url")
+
+        suffix = ".mp4"
+        tmp = tempfile.NamedTemporaryFile(
+            delete=False, suffix=suffix,
+            prefix=f"btl_{post_id[:8]}_"
+        )
+        try:
+            with httpx.stream("GET", url, timeout=120.0) as resp:
+                resp.raise_for_status()
                 for chunk in resp.iter_bytes():
-                    fh.write(chunk)
-        return path
+                    tmp.write(chunk)
+        finally:
+            tmp.close()
+        return tmp.name

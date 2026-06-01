@@ -107,7 +107,7 @@ class Config:
 
     # --- Runtime behaviour ----------------------------------------------
     timezone: str = "Europe/London"
-    dry_run: bool = False
+    dry_run: bool = True  # Safe default — must explicitly set DRY_RUN=false to post live
     log_level: str = "INFO"
     posts_per_run: int = 1
 
@@ -187,7 +187,7 @@ class Config:
             youtube_refresh_token=_get("YOUTUBE_REFRESH_TOKEN"),
             tiktok_access_token=_get("TIKTOK_ACCESS_TOKEN"),
             timezone=_get("TIMEZONE", "Europe/London"),
-            dry_run=_get_bool("DRY_RUN", False),
+            dry_run=_get_bool("DRY_RUN", True),  # Safe default — explicit DRY_RUN=false required to go live
             log_level=_get("LOG_LEVEL", "INFO"),
             posts_per_run=_get_int("POSTS_PER_RUN", 1),
             min_topic_relevance=_get_int("MIN_TOPIC_RELEVANCE", 70),
