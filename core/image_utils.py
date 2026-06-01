@@ -43,9 +43,10 @@ def add_brand_overlay(
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = img.size
 
-    bar_height = max(60, int(height * 0.11))
-    name_size = max(18, int(bar_height * 0.40))
-    tag_size  = max(12, int(bar_height * 0.25))
+    # Fixed pixel sizes so the overlay looks identical regardless of image dimensions.
+    bar_height = 80
+    name_size  = 30
+    tag_size   = 18
 
     # Build the overlay layer.
     overlay = Image.new("RGBA", (width, bar_height), (0, 0, 0, 0))
