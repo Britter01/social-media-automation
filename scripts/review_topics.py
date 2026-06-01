@@ -67,7 +67,7 @@ def _print_topics(topics: list[Topic]) -> None:
         return
     print(f"\n{len(topics)} topic(s) awaiting review:\n")
     for t in topics:
-        print(f"  {t.id[:8]}  [{t.relevance_score:>3}]  {t.pillar} → {t.platform}")
+        print(f"  {t.id[:8]}  [{t.relevance_score:>3}]  {t.pillar} -> {t.platform}")
         print(f"          {t.title}")
         if t.content_angle:
             print(f"          angle: {t.content_angle}")

@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # filtering on Sonnet/Opus; on the Haiku tier we use here it runs as a plain
 # web search (the search itself is server-side and tier-independent), which
 # is all the discovery step needs.
-_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
+_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search", "allowed_callers": ["direct"]}
 
 # Web search runs a server-side loop; if it hits the iteration cap it
 # returns stop_reason="pause_turn" and we re-send to let it resume.
@@ -222,6 +222,8 @@ class ResearchAgent:
             try:
                 self._content_agent.generate(post)
                 topic.mark(TopicStatus.USED)
+                if persist and self._db is not None:
+                    self._db.insert(post)
                 posts.append(post)
             except Exception:
                 logger.exception("Content generation failed for topic %s", topic.id)
