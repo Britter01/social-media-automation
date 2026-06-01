@@ -217,6 +217,8 @@ class ResearchAgent:
             logger.warning("No content agent configured; cannot generate content")
             return posts
 
+        configured = set(self._cfg.configured_platforms()) if self._cfg else set()
+
         for topic in topics:
             post = topic.to_post()
             try:
@@ -225,6 +227,25 @@ class ResearchAgent:
                 if persist and self._db is not None:
                     self._db.insert(post)
                 posts.append(post)
+
+                # Cross-post: if Instagram is the target and Facebook is
+                # configured, create an identical post for Facebook so the
+                # same content reaches both audiences automatically.
+                if post.platform == Platform.INSTAGRAM.value and Platform.FACEBOOK.value in configured:
+                    fb_post = Post(
+                        pillar=post.pillar,
+                        platform=Platform.FACEBOOK.value,
+                        topic=post.topic,
+                        caption=post.caption,
+                        hashtags=list(post.hashtags),
+                        title=post.title,
+                        thumbnail_url=post.thumbnail_url,
+                    )
+                    if persist and self._db is not None:
+                        self._db.insert(fb_post)
+                    posts.append(fb_post)
+                    logger.info("Created Facebook cross-post for topic %s", topic.id)
+
             except Exception:
                 logger.exception("Content generation failed for topic %s", topic.id)
                 continue

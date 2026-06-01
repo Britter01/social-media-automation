@@ -159,11 +159,17 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
     thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
     video_agent = _safe_init(VideoAgent, "video")
 
+    # Track the last scheduled time per platform so each post in a batch
+    # lands on a different day rather than all stacking on the same slot.
+    last_slot: dict[str, datetime] = {}
+
     scheduled = 0
     for post in posts:
         try:
             _generate_media(post, thumbnail_agent, video_agent)
-            scheduler_agent.schedule(post)
+            after = last_slot.get(post.platform)
+            scheduler_agent.schedule(post, after=after)
+            last_slot[post.platform] = post.scheduled_time
             if persist_insert:
                 db.insert(post)
             else:
