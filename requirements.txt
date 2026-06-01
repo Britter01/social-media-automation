@@ -9,7 +9,8 @@ pydantic>=2.6.0
 google-genai>=1.0.0
 
 # Database — Supabase
-supabase>=2.7.0
+# Pinned below 2.16 — storage3>=2.16 pulls in pyiceberg which fails to build
+supabase==2.15.0
 
 # Video + HTTP
 httpx>=0.27.0
