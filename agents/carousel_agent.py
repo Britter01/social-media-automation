@@ -164,10 +164,12 @@ class CarouselAgent:
 
         aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
         brand_prefix = (
-            f"Premium, minimal editorial photograph for {self._cfg.brand_name}. "
-            f"Theme: {post.pillar}. Clean composition, soft natural light, "
-            "modern technology in a beautifully lived-in space, warm and confident mood, "
-            "high detail, no text, no watermark, no logo. "
+            f"Premium, minimal editorial photograph. Theme: {post.pillar}. "
+            "Clean composition, soft natural light, modern technology in a beautifully "
+            "lived-in space, warm and confident mood, high detail. "
+            "IMPORTANT: absolutely no text of any kind — no words, letters, brand names, "
+            "logos, watermarks, signs, labels, or readable characters anywhere in the image. "
+            "Any device screens must show abstract patterns or blurred content only. "
         )
 
         # Build the full slide list: cover + content + CTA

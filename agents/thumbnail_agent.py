@@ -38,11 +38,12 @@ def _build_prompt(post: Post, brand_name: str) -> str:
     """Turn a post into a clean, on-brand image prompt."""
     subject = post.topic or post.title or post.pillar
     return (
-        f"A premium, minimal, editorial photograph for {brand_name}, "
-        f"theme: {post.pillar}. Subject: {subject}. "
-        "Clean composition, soft natural light, modern technology in a "
-        "beautifully lived-in space, warm and confident mood, high detail, "
-        "no text, no watermark, no logo."
+        f"Premium, minimal, editorial photograph. Theme: {post.pillar}. Subject: {subject}. "
+        "Clean composition, soft natural light, modern technology in a beautifully lived-in "
+        "space, warm and confident mood, high detail. "
+        "IMPORTANT: absolutely no text of any kind — no words, letters, brand names, "
+        "logos, watermarks, signs, labels, or readable characters anywhere in the image. "
+        "Any device screens must show abstract patterns or blurred content only."
     )
 
 
