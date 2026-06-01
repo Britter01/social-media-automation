@@ -21,10 +21,10 @@ def _db(pending=None):
     return db
 
 
-def test_pending_topics_queries_selected():
+def test_pending_topics_queries_pending_approval():
     db = _db()
     pending_topics(db)
-    db.topics_by_status.assert_called_once_with(TopicStatus.SELECTED)
+    db.topics_by_status.assert_called_once_with(TopicStatus.PENDING_APPROVAL)
 
 
 def test_approve_by_full_id_marks_and_persists():

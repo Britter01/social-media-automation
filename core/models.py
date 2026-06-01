@@ -50,7 +50,8 @@ class TopicStatus(StrEnum):
     """Lifecycle of a researched topic before it becomes a post."""
 
     NEW = "new"  # freshly discovered by the research agent
-    SELECTED = "selected"  # passed the relevance bar, awaiting human review
+    PENDING_APPROVAL = "pending_approval"  # passed the relevance bar, awaiting human review
+    SELECTED = "selected"  # legacy alias — superseded by PENDING_APPROVAL
     APPROVED = "approved"  # a human approved it; ready to become a post
     USED = "used"  # a post was generated from it
     REJECTED = "rejected"  # discarded (below the bar, or rejected by a human)

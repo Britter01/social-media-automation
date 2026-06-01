@@ -31,7 +31,7 @@ from core.models import Topic, TopicStatus
 
 def pending_topics(db) -> list[Topic]:
     """Topics awaiting review, highest-scoring first."""
-    return db.topics_by_status(TopicStatus.SELECTED)
+    return db.topics_by_status(TopicStatus.PENDING_APPROVAL)
 
 
 def _resolve(pending: list[Topic], token: str) -> Topic | None:

@@ -178,7 +178,7 @@ class ResearchAgent:
         eligible.sort(key=lambda t: t.relevance_score, reverse=True)
         chosen = eligible[:cap]
         for topic in chosen:
-            topic.mark(TopicStatus.SELECTED)
+            topic.mark(TopicStatus.PENDING_APPROVAL)
         return chosen
 
     def research(self, categories: list[str] | None = None, *, persist: bool = True) -> list[Topic]:

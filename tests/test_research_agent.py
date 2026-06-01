@@ -168,8 +168,8 @@ def test_select_best_filters_sorts_and_caps(base_config):
     chosen = agent.select_best(topics, limit=2)
 
     assert [t.title for t in chosen] == ["high", "mid"]  # sorted, capped at 2
-    assert all(t.status == TopicStatus.SELECTED.value for t in chosen)
-    # The below-threshold topic is marked rejected, not selected.
+    assert all(t.status == TopicStatus.PENDING_APPROVAL.value for t in chosen)
+    # The below-threshold topic is marked rejected, not pending.
     assert topics[0].status == TopicStatus.REJECTED.value
 
 
@@ -192,7 +192,7 @@ def test_research_persists_all_and_returns_selected(base_config):
     # Both topics persisted (rejected ideas stay auditable); only one selected.
     assert db.insert_topic.call_count == 2
     assert [t.title for t in selected] == ["great"]
-    assert selected[0].status == TopicStatus.SELECTED.value
+    assert selected[0].status == TopicStatus.PENDING_APPROVAL.value
 
 
 # --- run / approval gate ---------------------------------------------------
