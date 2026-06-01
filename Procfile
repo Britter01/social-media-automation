@@ -1,1 +1,1 @@
-worker: python scheduler/cron.py
+worker: python -m scheduler.cron
