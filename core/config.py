@@ -61,9 +61,16 @@ class Config:
     brand_founder: str = "Dean Britter"
     brand_tagline: str = "Technology, beautifully lived."
 
-    # --- Anthropic (content generation) ---------------------------------
+    # --- Anthropic (text generation) ------------------------------------
+    # Two cost tiers, no Opus (its quality isn't needed for social copy and
+    # it costs ~5x Sonnet / ~25x Haiku per token):
+    #   * model_creative — writing, ideation, and scoring that need judgment.
+    #   * model_fast      — simple, mechanical, repetitive, high-volume work.
+    # Each agent picks the cheapest tier that still does its job well; see the
+    # model-choice note at the top of each agent module.
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-8"
+    model_creative: str = "claude-sonnet-4-6"
+    model_fast: str = "claude-haiku-4-5"
 
     # --- Google Imagen 4 Fast (thumbnails) ------------------------------
     google_api_key: str | None = None
@@ -154,7 +161,8 @@ class Config:
             brand_founder=_get("BRAND_FOUNDER", "Dean Britter"),
             brand_tagline=_get("BRAND_TAGLINE", "Technology, beautifully lived."),
             anthropic_api_key=_get("ANTHROPIC_API_KEY"),
-            anthropic_model=_get("ANTHROPIC_MODEL", "claude-opus-4-8"),
+            model_creative=_get("ANTHROPIC_MODEL_CREATIVE", "claude-sonnet-4-6"),
+            model_fast=_get("ANTHROPIC_MODEL_FAST", "claude-haiku-4-5"),
             google_api_key=_get("GOOGLE_API_KEY"),
             imagen_model=_get("IMAGEN_MODEL", "imagen-4.0-fast-generate-001"),
             heygen_api_key=_get("HEYGEN_API_KEY"),

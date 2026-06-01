@@ -1,6 +1,15 @@
 """Content agent — captions and hashtags via the Claude API.
 
-Uses the Anthropic Python SDK (`claude-opus-4-8`) with:
+Model choice: ``model_creative`` (Sonnet 4.6). Writing an on-brand caption
+and hook is a creative task where quality directly shapes engagement, so it
+warrants the mid-tier model — but not Opus, whose extra reasoning buys
+little on short social copy at several times the cost. Hashtags are simple
+enough for Haiku, but they're produced in the *same* structured response as
+the caption: bundling them in costs only a few extra output tokens, which is
+cheaper than a second (Haiku) round-trip with its own input + request
+overhead. So the whole call stays on Sonnet.
+
+Uses the Anthropic Python SDK with:
   * adaptive thinking, so Claude decides how hard to think per request;
   * prompt caching on the large, stable brand system prompt, so repeated
     generations across a run only pay full price for the first call;
@@ -108,7 +117,9 @@ class ContentAgent:
 
         try:
             response = self._client.messages.parse(
-                model=self._cfg.anthropic_model,
+                # Creative tier (Sonnet): caption writing is the quality-
+                # sensitive part of the pipeline; hashtags ride along.
+                model=self._cfg.model_creative,
                 max_tokens=2000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": "medium"},

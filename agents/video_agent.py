@@ -8,6 +8,10 @@ HeyGen flow:
   1. POST /v2/video/generate  -> { video_id }
   2. GET  /v1/video_status.get?video_id=...  (poll until status == 'completed')
   3. read video_url from the completed status payload
+
+Model choice: not a Claude model. Video is produced by HeyGen from the
+script/caption the content agent already wrote, so the Claude text-model
+tiering (Sonnet/Haiku) doesn't apply here.
 """
 
 from __future__ import annotations

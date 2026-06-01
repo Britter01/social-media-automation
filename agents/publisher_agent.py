@@ -8,6 +8,10 @@ failed and move on (one platform failing never blocks the others).
 Set ``DRY_RUN=true`` to log what *would* be posted without calling any
 external API — useful for local development and first deploys.
 
+Model choice: not a Claude model. Publishing is plain HTTP calls to each
+network's API — no LLM involved — so the Claude text-model tiering
+(Sonnet/Haiku) doesn't apply here.
+
 Notes on the platform APIs:
   * Instagram  — Graph API: create a media container, then publish it.
   * X/Twitter  — API v2 POST /2/tweets (OAuth 1.0a user context).

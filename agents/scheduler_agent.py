@@ -5,6 +5,12 @@ that platform in the brand's timezone. Slots are drawn from widely-cited
 best-time-to-post windows per network; tune the tables to your own
 analytics as you gather data.
 
+Model choice: none. Scheduling is a fixed decision — match the platform
+and clock to a best-time table — so it's done with plain Python, not an
+LLM call. That's both more reliable and strictly cheaper than even the
+Haiku tier (zero tokens), which is why "scheduling decisions" never reach
+the Claude API here.
+
 The agent is deterministic and side-effect free — it only computes a
 ``datetime``. Persisting the schedule is the caller's job.
 """

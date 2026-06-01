@@ -43,6 +43,17 @@ AI Guide · Tech Lifestyle · Productivity · Fitness Tech · Review
 ### Brand voice
 Clear, confident, warm. Never patronising. Short sentences. (Baked into the cached Claude system prompt in `agents/content_agent.py`.)
 
+### Model usage (cost-tiered, no Opus)
+Each agent uses the cheapest model that does its job well — Opus isn't used anywhere.
+
+| Task | Model | Why |
+| --- | --- | --- |
+| Caption + hashtags (`content_agent`) | `ANTHROPIC_MODEL_CREATIVE` — Sonnet 4.6 | Creative writing drives engagement; hashtags ride along in the same call. |
+| Topic scoring / pillar + platform + angle (`research_agent`) | Sonnet 4.6 | The ideation/judgment step; small structured output, so the premium applies to few tokens. |
+| Trend discovery / web search (`research_agent`) | `ANTHROPIC_MODEL_FAST` — Haiku 4.5 | High-token gather-and-summarise; the search is server-side, so a cheap model suffices. |
+| Scheduling (`scheduler_agent`) | none | Deterministic best-time table lookup — zero tokens, cheaper than any model. |
+| Thumbnails / video / publishing | none (Imagen / HeyGen / platform APIs) | Not text tasks. |
+
 ---
 
 ## Project layout
@@ -96,7 +107,7 @@ Fill in `.env`. **Leave `DRY_RUN=true` until you've confirmed everything works**
 
 | Variable group | Keys | Where to get them |
 | --- | --- | --- |
-| Claude | `ANTHROPIC_API_KEY` | platform.claude.com |
+| Claude | `ANTHROPIC_API_KEY` (model tiers default to Sonnet 4.6 / Haiku 4.5; override with `ANTHROPIC_MODEL_CREATIVE` / `ANTHROPIC_MODEL_FAST`) | platform.claude.com |
 | Imagen | `GOOGLE_API_KEY` | Google AI Studio / Vertex |
 | HeyGen | `HEYGEN_API_KEY`, `HEYGEN_VOICE_ID`, `HEYGEN_AVATAR_ID` | HeyGen dashboard |
 | Supabase | `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_BUCKET` | Supabase project settings |

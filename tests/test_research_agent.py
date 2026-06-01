@@ -79,10 +79,17 @@ def test_discover_uses_web_search_tool_and_caching(base_config):
     _, kwargs = agent._client.messages.create.call_args
     assert kwargs["tools"] == [{"type": "web_search_20260209", "name": "web_search"}]
     assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+    # Discovery runs on the fast (Haiku) tier — and must not send effort,
+    # which Haiku 4.5 rejects.
+    assert kwargs["model"] == base_config.model_fast
+    assert "output_config" not in kwargs
 
     _, parse_kwargs = agent._client.messages.parse.call_args
     assert parse_kwargs["output_format"] is TopicSlate
     assert parse_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+    # Scoring runs on the creative (Sonnet) tier — never Opus.
+    assert parse_kwargs["model"] == base_config.model_creative
+    assert "opus" not in agent._cfg.model_fast and "opus" not in agent._cfg.model_creative
 
 
 def test_discover_empty_search_returns_no_topics(base_config):

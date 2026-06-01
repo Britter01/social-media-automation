@@ -18,8 +18,16 @@ clean, validated ``Topic`` objects. The large brand brief is sent as a
 prompt-cached system block, so both calls — and every run — reuse it at
 ~0.1x cost after the first.
 
-The best-scoring topics are persisted to the Supabase ``topics`` table
-and handed to the content agent, which turns each into a draft post.
+Model choice (no Opus anywhere):
+  * Discovery runs on ``model_fast`` (Haiku 4.5). It's a high-token,
+    repetitive gather-and-summarise task: the server-side search does the
+    real work, and the model just drives queries and lists what it found.
+    Haiku is ~3-5x cheaper than Sonnet and ample for that.
+  * Scoring runs on ``model_creative`` (Sonnet 4.6). Judging brand fit and
+    choosing a pillar, platform, and angle is the creative/ideation step
+    where a better model pays off — and it's a small, structured output, so
+    the Sonnet premium applies to few tokens. The human approval gate is
+    the final quality backstop downstream.
 """
 
 from __future__ import annotations
@@ -34,9 +42,10 @@ from core.models import Pillar, Platform, Post, Topic, TopicStatus
 
 logger = logging.getLogger(__name__)
 
-# Server-side web search tool. The 2026-02-09 version has dynamic result
-# filtering built in (Claude filters results before they hit the context),
-# which improves accuracy and token efficiency on Opus 4.8.
+# Server-side web search tool. The 2026-02-09 version adds dynamic result
+# filtering on Sonnet/Opus; on the Haiku tier we use here it runs as a plain
+# web search (the search itself is server-side and tier-independent), which
+# is all the discovery step needs.
 _WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 
 # Web search runs a server-side loop; if it hits the iteration cap it
@@ -288,10 +297,13 @@ class ResearchAgent:
         for _ in range(_MAX_CONTINUATIONS):
             try:
                 response = self._client.messages.create(
-                    model=self._cfg.anthropic_model,
+                    # Fast tier (Haiku): discovery is a cheap, high-token
+                    # gather-and-summarise pass over web results. No thinking
+                    # or effort params — Haiku 4.5 doesn't support adaptive
+                    # thinking or the effort parameter (they'd 400), and this
+                    # task doesn't need them anyway.
+                    model=self._cfg.model_fast,
                     max_tokens=8000,
-                    thinking={"type": "adaptive"},
-                    output_config={"effort": "medium"},
                     system=[
                         {
                             "type": "text",
@@ -328,7 +340,10 @@ class ResearchAgent:
 
         try:
             response = self._client.messages.parse(
-                model=self._cfg.anthropic_model,
+                # Creative tier (Sonnet): scoring + pillar/platform/angle is
+                # the judgment step. Small structured output, so the premium
+                # applies to few tokens.
+                model=self._cfg.model_creative,
                 max_tokens=4000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": "medium"},

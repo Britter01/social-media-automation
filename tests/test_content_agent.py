@@ -44,7 +44,9 @@ def test_generate_uses_correct_model_and_caching(base_config):
     agent.generate(post)
 
     _, kwargs = agent._client.messages.parse.call_args
-    assert kwargs["model"] == base_config.anthropic_model
+    # Caption writing uses the creative tier (Sonnet), never Opus.
+    assert kwargs["model"] == base_config.model_creative
+    assert "opus" not in kwargs["model"]
     assert kwargs["thinking"] == {"type": "adaptive"}
     # Brand system prompt is sent as a cached block.
     assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
