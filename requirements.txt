@@ -1,5 +1,6 @@
 # Core
 python-dotenv>=1.0.1
+Pillow>=10.1.0
 
 # Content generation — Claude API
 anthropic>=0.49.0

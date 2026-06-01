@@ -213,6 +213,14 @@ class CarouselAgent:
                     logger.warning("Imagen returned no image for slide %d; skipping", i)
                     continue
                 image_bytes = images[0].image.image_bytes
+
+                from core.image_utils import add_brand_overlay
+                image_bytes = add_brand_overlay(
+                    image_bytes,
+                    self._cfg.brand_name,
+                    self._cfg.brand_tagline,
+                )
+
                 image_url = self._upload(carousel_id, i, image_bytes)
                 result.append({
                     "headline": slide["headline"],

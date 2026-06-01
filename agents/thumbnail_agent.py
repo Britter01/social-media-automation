@@ -100,6 +100,14 @@ class ThumbnailAgent:
             raise RuntimeError("Imagen returned no images (possibly blocked by safety filters)")
 
         image_bytes = images[0].image.image_bytes
+
+        from core.image_utils import add_brand_overlay
+        image_bytes = add_brand_overlay(
+            image_bytes,
+            self._cfg.brand_name,
+            self._cfg.brand_tagline,
+        )
+
         url = self._persist(post, image_bytes)
         post.thumbnail_url = url
         # Don't downgrade status if media (video) handling sets it later;
