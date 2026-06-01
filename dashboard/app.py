@@ -175,6 +175,73 @@ with tab_topics:
                         st.cache_data.clear()
                         st.rerun()
 
+# --- Shared post card renderer -----------------------------------------------
+
+def _type_banner(post: dict, time_str: str = "", time_label: str = "") -> None:
+    """Render the top banner of a post card — carousel gets purple, regular gets green."""
+    is_carousel = post.get("post_type") == "carousel"
+    slides = post.get("slides") or []
+    platform = post.get("platform", "").upper()
+
+    if is_carousel:
+        label = f"🎠 Carousel · {len(slides)} slides · {platform}"
+        st.markdown(
+            f"<div style='background:#7C3AED22;color:#7C3AED;border-radius:6px;"
+            f"padding:6px 10px;font-size:12px;font-weight:800;text-align:center;"
+            f"border:1.5px solid #7C3AED44;letter-spacing:0.3px'>"
+            f"{label}</div>",
+            unsafe_allow_html=True,
+        )
+    elif time_str:
+        color = "#10B981" if time_label == "scheduled" else "#059669"
+        icon = "📅" if time_label == "scheduled" else "📢"
+        st.markdown(
+            f"<div style='background:{color}22;color:{color};border-radius:4px;"
+            f"padding:4px 8px;font-size:12px;font-weight:700;text-align:center'>"
+            f"{icon} {time_str} · {platform}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
+    """Render a full post card, with clear carousel vs regular distinction."""
+    is_carousel = post.get("post_type") == "carousel"
+    slides = post.get("slides") or []
+
+    if post.get("thumbnail_url"):
+        st.image(post["thumbnail_url"], use_container_width=True)
+    else:
+        st.markdown(
+            "<div style='background:#F3F4F6;border-radius:8px;height:120px;"
+            "display:flex;align-items:center;justify-content:center;"
+            "color:#9CA3AF;font-size:13px'>No thumbnail</div>",
+            unsafe_allow_html=True,
+        )
+
+    _type_banner(post, time_str, time_label)
+    st.markdown(f"**{post.get('title') or post.get('topic') or 'Untitled'}**")
+    st.caption(f"{post.get('pillar','—')}")
+
+    if is_carousel and slides:
+        with st.expander(f"View {len(slides)} slides"):
+            for j, slide in enumerate(slides):
+                role = slide.get("role", "")
+                role_tag = " *(cover)*" if role == "cover" else " *(CTA)*" if role == "cta" else ""
+                st.markdown(f"**{j+1}. {slide.get('headline','')}**{role_tag}")
+                st.caption(slide.get("body", ""))
+                if slide.get("image_url"):
+                    st.image(slide["image_url"], use_container_width=True)
+                st.divider()
+    elif post.get("caption"):
+        with st.expander("Caption"):
+            st.write(post["caption"])
+            if post.get("hashtags"):
+                st.caption(" ".join(f"#{h}" for h in post["hashtags"]))
+
+    if post.get("platform_post_id") and post["platform_post_id"] != "dry-run":
+        st.caption(f"Post ID: `{post['platform_post_id']}`")
+
+
 # --- Posts (content/media ready) --------------------------------------------
 
 with tab_posts:
@@ -186,41 +253,7 @@ with tab_posts:
         for i, post in enumerate(in_progress):
             with cols[i % 3]:
                 with st.container(border=True):
-                    if post.get("thumbnail_url"):
-                        st.image(post["thumbnail_url"], use_container_width=True)
-                    else:
-                        st.markdown(
-                            "<div style='background:#F3F4F6;border-radius:8px;"
-                            "height:140px;display:flex;align-items:center;"
-                            "justify-content:center;color:#9CA3AF;font-size:13px'>"
-                            "No thumbnail yet</div>",
-                            unsafe_allow_html=True,
-                        )
-                    status = post.get("status", "")
-                    post_type = post.get("post_type", "standard")
-                    status_color = "#8B5CF6" if status == "content_ready" else "#EC4899"
-                    type_badge = " 🎠 Carousel" if post_type == "carousel" else ""
-                    st.markdown(
-                        f"<span style='background:{status_color}22;color:{status_color};"
-                        f"border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700'>"
-                        f"{status.replace('_',' ').title()}{type_badge}</span>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(f"**{post.get('title') or post.get('topic','Untitled')}**")
-                    st.caption(f"{post.get('pillar','—')} · {post.get('platform','—')}")
-                    slides = post.get("slides") or []
-                    if slides:
-                        with st.expander(f"Slides ({len(slides)})"):
-                            for j, slide in enumerate(slides):
-                                st.markdown(f"**{j+1}. {slide.get('headline','')}**")
-                                st.caption(slide.get("body",""))
-                                if slide.get("image_url"):
-                                    st.image(slide["image_url"], use_container_width=True)
-                    elif post.get("caption"):
-                        with st.expander("Caption"):
-                            st.write(post["caption"])
-                            if post.get("hashtags"):
-                                st.caption(" ".join(f"#{h}" for h in post["hashtags"]))
+                    _post_card(post)
 
 # --- Scheduled ---------------------------------------------------------------
 
@@ -228,32 +261,33 @@ with tab_scheduled:
     if not scheduled:
         st.info("No posts currently scheduled.")
     else:
-        cols = st.columns(3)
-        for i, post in enumerate(sorted(scheduled, key=lambda p: p.get("scheduled_time") or "")):
-            with cols[i % 3]:
-                with st.container(border=True):
-                    if post.get("thumbnail_url"):
-                        st.image(post["thumbnail_url"], use_container_width=True)
-                    sched = post.get("scheduled_time", "")
-                    if sched:
-                        try:
-                            dt = datetime.fromisoformat(sched.replace("Z", "+00:00"))
-                            sched_str = dt.strftime("%a %d %b · %H:%M %Z")
-                        except Exception:
-                            sched_str = sched
-                    else:
-                        sched_str = "—"
-                    st.markdown(
-                        f"<div style='background:#10B98122;color:#10B981;border-radius:4px;"
-                        f"padding:4px 8px;font-size:12px;font-weight:700;text-align:center'>"
-                        f"📅 {sched_str}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(f"**{post.get('title') or post.get('topic','Untitled')}**")
-                    st.caption(f"{post.get('pillar','—')} · {post.get('platform','—')}")
-                    if post.get("caption"):
-                        with st.expander("Caption"):
-                            st.write(post["caption"])
+        # Split into regular and carousel for cleaner display
+        regular_sched = [p for p in scheduled if p.get("post_type") != "carousel"]
+        carousel_sched = [p for p in scheduled if p.get("post_type") == "carousel"]
+
+        def _sched_str(p):
+            sched = p.get("scheduled_time", "")
+            try:
+                dt = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+                return dt.strftime("%a %d %b · %H:%M %Z")
+            except Exception:
+                return sched
+
+        if regular_sched:
+            st.markdown("#### Regular Posts")
+            cols = st.columns(3)
+            for i, post in enumerate(sorted(regular_sched, key=lambda p: p.get("scheduled_time") or "")):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        _post_card(post, _sched_str(post), "scheduled")
+
+        if carousel_sched:
+            st.markdown("#### 🎠 Carousels")
+            cols = st.columns(3)
+            for i, post in enumerate(sorted(carousel_sched, key=lambda p: p.get("scheduled_time") or "")):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        _post_card(post, _sched_str(post), "scheduled")
 
 # --- Published ---------------------------------------------------------------
 
@@ -264,28 +298,14 @@ with tab_published:
         cols = st.columns(3)
         for i, post in enumerate(published):
             with cols[i % 3]:
+                pub = post.get("published_time", "")
+                try:
+                    dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
+                    pub_str = dt.strftime("%a %d %b · %H:%M %Z")
+                except Exception:
+                    pub_str = pub
                 with st.container(border=True):
-                    if post.get("thumbnail_url"):
-                        st.image(post["thumbnail_url"], use_container_width=True)
-                    pub = post.get("published_time", "")
-                    if pub:
-                        try:
-                            dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
-                            pub_str = dt.strftime("%a %d %b · %H:%M %Z")
-                        except Exception:
-                            pub_str = pub
-                    else:
-                        pub_str = "—"
-                    st.markdown(
-                        f"<div style='background:#05966922;color:#059669;border-radius:4px;"
-                        f"padding:4px 8px;font-size:12px;font-weight:700;text-align:center'>"
-                        f"📢 Published {pub_str}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(f"**{post.get('title') or post.get('topic','Untitled')}**")
-                    st.caption(f"{post.get('pillar','—')} · {post.get('platform','—')}")
-                    if post.get("platform_post_id"):
-                        st.caption(f"Post ID: `{post['platform_post_id']}`")
+                    _post_card(post, pub_str, "published")
 
 # --- Failed posts (sidebar alert) -------------------------------------------
 
