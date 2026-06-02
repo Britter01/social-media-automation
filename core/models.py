@@ -97,7 +97,8 @@ class Post:
     platform_post_id: str | None = None
     error: str | None = None
     post_type: str = "standard"  # "standard" or "carousel"
-    slides: list[dict] = field(default_factory=list)  # carousel slides: [{headline, body, image_url, role}]
+    # carousel slides: [{headline, body, image_url, role}]
+    slides: list[dict] = field(default_factory=list)
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))

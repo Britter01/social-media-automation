@@ -31,30 +31,30 @@ _WHITE = (255, 255, 255)
 _SHADOW = (0, 0, 0)
 
 # Wordmark opacities
-_BRITE_ALPHA  = 230   # "Brite" — near-full white, slightly soft
-_SUB_ALPHA    = 140   # "TECH LIFESTYLE" — white at ~55% opacity
+_BRITE_ALPHA = 230  # "Brite" — near-full white, slightly soft
+_SUB_ALPHA = 140  # "TECH LIFESTYLE" — white at ~55% opacity
 
 # Shadow
-_SHADOW_ALPHA  = 120  # shadow darkness
-_SHADOW_OFFSET = 1    # pixels offset for drop shadow
+_SHADOW_ALPHA = 120  # shadow darkness
+_SHADOW_OFFSET = 1  # pixels offset for drop shadow
 
 # Bottom padding from image edge
 _PAD_BOTTOM = 28
 
 # Font sizes
 _SIZE_BRITE = 36
-_SIZE_SUB   = 11
+_SIZE_SUB = 11
 
 # Letter-spacing simulation (extra pixels between characters)
-_TRACKING_BRITE = -1   # slight tightening
-_TRACKING_SUB   = 3    # wide tracking for subtitle
+_TRACKING_BRITE = -1  # slight tightening
+_TRACKING_SUB = 3  # wide tracking for subtitle
 
 # --------------------------------------------------------------------------- #
 # Font loading                                                                 #
 # --------------------------------------------------------------------------- #
 _FONT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "btl_fonts")
 _FONT_URLS = {
-    "figtree-bold":    "https://cdn.jsdelivr.net/fontsource/fonts/figtree@latest/latin-700-normal.ttf",
+    "figtree-bold": "https://cdn.jsdelivr.net/fontsource/fonts/figtree@latest/latin-700-normal.ttf",
     "figtree-regular": "https://cdn.jsdelivr.net/fontsource/fonts/figtree@latest/latin-400-normal.ttf",
 }
 
@@ -71,6 +71,7 @@ def _get_font(name: str, size: int):
         if url:
             try:
                 import requests
+
                 resp = requests.get(url, timeout=15)
                 resp.raise_for_status()
                 with open(path, "wb") as fh:
@@ -124,6 +125,7 @@ def _draw_tracked(draw, xy: tuple, text: str, font, fill: tuple, tracking: int =
 # Public API                                                                   #
 # --------------------------------------------------------------------------- #
 
+
 def add_brand_overlay(
     image_bytes: bytes,
     brand_name: str = "Brite Tech Lifestyle",
@@ -146,24 +148,29 @@ def add_brand_overlay(
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = img.size
 
-    font_brite = _get_font("figtree-bold",    _SIZE_BRITE)
-    font_sub   = _get_font("figtree-regular", _SIZE_SUB)
+    font_brite = _get_font("figtree-bold", _SIZE_BRITE)
+    font_sub = _get_font("figtree-regular", _SIZE_SUB)
 
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw    = ImageDraw.Draw(overlay)
+    draw = ImageDraw.Draw(overlay)
 
     # ── "TECH LIFESTYLE" — small, wide-tracked, positioned first ────────────
     sub_text = "TECH LIFESTYLE"
-    sub_w    = _text_width(font_sub, sub_text, _TRACKING_SUB)
-    sub_x    = (width - sub_w) // 2
-    sub_y    = height - _PAD_BOTTOM - _SIZE_SUB
+    sub_w = _text_width(font_sub, sub_text, _TRACKING_SUB)
+    sub_x = (width - sub_w) // 2
+    sub_y = height - _PAD_BOTTOM - _SIZE_SUB
 
     # Shadow
-    _draw_tracked(draw, (sub_x + _SHADOW_OFFSET, sub_y + _SHADOW_OFFSET),
-                  sub_text, font_sub, (*_SHADOW, _SHADOW_ALPHA), _TRACKING_SUB)
+    _draw_tracked(
+        draw,
+        (sub_x + _SHADOW_OFFSET, sub_y + _SHADOW_OFFSET),
+        sub_text,
+        font_sub,
+        (*_SHADOW, _SHADOW_ALPHA),
+        _TRACKING_SUB,
+    )
     # Text
-    _draw_tracked(draw, (sub_x, sub_y),
-                  sub_text, font_sub, (*_WHITE, _SUB_ALPHA), _TRACKING_SUB)
+    _draw_tracked(draw, (sub_x, sub_y), sub_text, font_sub, (*_WHITE, _SUB_ALPHA), _TRACKING_SUB)
 
     # ── "Brite" — bold, above subtitle ──────────────────────────────────────
     brite_w = _text_width(font_brite, "Brite", _TRACKING_BRITE)
@@ -171,11 +178,18 @@ def add_brand_overlay(
     brite_y = sub_y - _SIZE_BRITE - 4
 
     # Shadow
-    _draw_tracked(draw, (brite_x + _SHADOW_OFFSET, brite_y + _SHADOW_OFFSET),
-                  "Brite", font_brite, (*_SHADOW, _SHADOW_ALPHA), _TRACKING_BRITE)
+    _draw_tracked(
+        draw,
+        (brite_x + _SHADOW_OFFSET, brite_y + _SHADOW_OFFSET),
+        "Brite",
+        font_brite,
+        (*_SHADOW, _SHADOW_ALPHA),
+        _TRACKING_BRITE,
+    )
     # Text
-    _draw_tracked(draw, (brite_x, brite_y),
-                  "Brite", font_brite, (*_WHITE, _BRITE_ALPHA), _TRACKING_BRITE)
+    _draw_tracked(
+        draw, (brite_x, brite_y), "Brite", font_brite, (*_WHITE, _BRITE_ALPHA), _TRACKING_BRITE
+    )
 
     img = Image.alpha_composite(img, overlay)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 import os
 from collections import defaultdict
-from datetime import UTC, datetime, date
+from datetime import UTC, date, datetime
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -25,7 +25,8 @@ st.set_page_config(
 
 # ── CSS injection via components.html (0-height iframe — always reliable) ────
 
-components.html("""
+components.html(
+    """
 <script>
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&display=swap');
@@ -70,9 +71,12 @@ document.fonts.ready.then(function() {
 });
 window.parent.addEventListener('resize', alignBriteSub);
 </script>
-""", height=0)
+""",
+    height=0,
+)
 
 # ── Authentication ────────────────────────────────────────────────────────────
+
 
 def _check_password() -> bool:
     try:
@@ -90,14 +94,19 @@ def _check_password() -> bool:
     st.markdown("<br>" * 3, unsafe_allow_html=True)
     col = st.columns([1, 1, 1])[1]
     with col:
-        st.markdown("""
+        st.markdown(
+            """
         <div style="text-align:center;margin-bottom:24px">
           <div style="font-size:52px;font-weight:800;letter-spacing:-0.045em;color:#1D1D1F;line-height:1">Brite</div>
           <div style="font-size:10px;font-weight:300;letter-spacing:0.28em;color:#A1A1A6;text-transform:uppercase;margin-top:4px">Tech Lifestyle</div>
           <div style="font-size:14px;color:#6E6E73;margin-top:16px;font-weight:400">Automation Dashboard</div>
         </div>
-        """, unsafe_allow_html=True)
-        pwd = st.text_input("Password", type="password", placeholder="Enter password", label_visibility="collapsed")
+        """,
+            unsafe_allow_html=True,
+        )
+        pwd = st.text_input(
+            "Password", type="password", placeholder="Enter password", label_visibility="collapsed"
+        )
         if st.button("Sign In", use_container_width=True, type="primary"):
             if pwd == expected:
                 st.session_state["authenticated"] = True
@@ -106,10 +115,12 @@ def _check_password() -> bool:
                 st.error("Incorrect password.")
     return False
 
+
 if not _check_password():
     st.stop()
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
+
 
 @st.cache_resource
 def get_db():
@@ -124,31 +135,43 @@ def get_db():
         st.stop()
     return create_client(url, key)
 
+
 db = get_db()
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
+
 @st.cache_data(ttl=30)
 def load_topics():
-    return db.table("topics").select("*").order("relevance_score", desc=True).limit(200).execute().data or []
+    return (
+        db.table("topics").select("*").order("relevance_score", desc=True).limit(200).execute().data
+        or []
+    )
+
 
 @st.cache_data(ttl=30)
 def load_posts():
-    return db.table("posts").select("*").order("scheduled_time", desc=False).limit(500).execute().data or []
+    return (
+        db.table("posts").select("*").order("scheduled_time", desc=False).limit(500).execute().data
+        or []
+    )
+
 
 topics = load_topics()
-posts  = load_posts()
+posts = load_posts()
+
 
 def by_status(items, status):
     return [i for i in items if i.get("status") == status]
 
-pending       = by_status(topics, "pending_approval")
-approved_t    = by_status(topics, "approved")
+
+pending = by_status(topics, "pending_approval")
+approved_t = by_status(topics, "approved")
 content_ready = by_status(posts, "content_ready")
-media_ready   = by_status(posts, "media_ready")
-scheduled     = by_status(posts, "scheduled")
-published     = by_status(posts, "published")
-failed        = by_status(posts, "failed")
+media_ready = by_status(posts, "media_ready")
+scheduled = by_status(posts, "scheduled")
+published = by_status(posts, "published")
+failed = by_status(posts, "failed")
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
@@ -156,7 +179,8 @@ now_utc = datetime.now(UTC)
 
 # Black branded nav bar
 # Full-width branded header bar
-st.markdown(f"""
+st.markdown(
+    f"""
 <div style="background:#000;border-radius:16px;padding:18px 32px;margin-bottom:16px;
             display:flex;align-items:center;justify-content:space-between;
             box-sizing:border-box;width:100%">
@@ -173,7 +197,9 @@ st.markdown(f"""
   </div>
   <div style="font-size:11px;color:rgba(255,255,255,0.3)">{now_utc.strftime("%d %b %Y  ·  %H:%M UTC")}</div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # Refresh button in its own row, clearly visible
 col_r = st.columns([5, 1])
@@ -185,30 +211,35 @@ with col_r[1]:
 # ── Pipeline flow ─────────────────────────────────────────────────────────────
 
 STAGES = [
-    ("Research", len(topics),        "#6E6E73"),
-    ("Pending",  len(pending),       "#F59E0B"),
-    ("Approved", len(approved_t),    "#0066CC"),
-    ("Content",  len(content_ready), "#8B5CF6"),
-    ("Media",    len(media_ready),   "#EC4899"),
-    ("Sched",    len(scheduled),     "#10B981"),
-    ("Live",     len(published),     "#059669"),
-    ("Failed",   len(failed),        "#EF4444"),
+    ("Research", len(topics), "#6E6E73"),
+    ("Pending", len(pending), "#F59E0B"),
+    ("Approved", len(approved_t), "#0066CC"),
+    ("Content", len(content_ready), "#8B5CF6"),
+    ("Media", len(media_ready), "#EC4899"),
+    ("Sched", len(scheduled), "#10B981"),
+    ("Live", len(published), "#059669"),
+    ("Failed", len(failed), "#EF4444"),
 ]
 
 cols = st.columns(len(STAGES) * 2 - 1)
 for i, (label, count, color) in enumerate(STAGES):
     with cols[i * 2]:
-        st.markdown(f"""
+        st.markdown(
+            f"""
         <div style="background:{color}12;border:2px solid {color}55;border-radius:12px;
                     padding:14px 4px;text-align:center;margin-bottom:8px">
           <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
                       color:{color};margin-bottom:4px">{label}</div>
           <div style="font-size:34px;font-weight:800;letter-spacing:-0.04em;color:{color};line-height:1">{count}</div>
-        </div>""", unsafe_allow_html=True)
+        </div>""",
+            unsafe_allow_html=True,
+        )
     if i < len(STAGES) - 1:
         with cols[i * 2 + 1]:
-            st.markdown("<div style='text-align:center;font-size:18px;color:#D1D5DB;padding-top:24px'>›</div>",
-                        unsafe_allow_html=True)
+            st.markdown(
+                "<div style='text-align:center;font-size:18px;color:#D1D5DB;padding-top:24px'>›</div>",
+                unsafe_allow_html=True,
+            )
 
 st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 
@@ -216,18 +247,22 @@ st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 
 PLATFORM_COLORS = {
     "instagram": "#E1306C",
-    "facebook":  "#1877F2",
-    "twitter":   "#1DA1F2",
-    "linkedin":  "#0A66C2",
-    "tiktok":    "#010101",
-    "youtube":   "#FF0000",
+    "facebook": "#1877F2",
+    "twitter": "#1DA1F2",
+    "linkedin": "#0A66C2",
+    "tiktok": "#010101",
+    "youtube": "#FF0000",
 }
+
 
 def _platform_pill(platform: str) -> str:
     color = PLATFORM_COLORS.get(platform.lower(), "#6E6E73")
-    return (f"<span style='background:{color}18;color:{color};border-radius:9999px;"
-            f"padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:0.04em;"
-            f"text-transform:uppercase'>{platform}</span>")
+    return (
+        f"<span style='background:{color}18;color:{color};border-radius:9999px;"
+        f"padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:0.04em;"
+        f"text-transform:uppercase'>{platform}</span>"
+    )
+
 
 def _sched_str(p):
     raw = p.get("scheduled_time") or p.get("published_time") or ""
@@ -237,26 +272,30 @@ def _sched_str(p):
     except Exception:
         return raw
 
+
 def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     is_carousel = post.get("post_type") == "carousel"
-    slides      = post.get("slides") or []
-    platform    = post.get("platform", "")
-    title       = post.get("title") or post.get("topic") or "Untitled"
-    pillar      = post.get("pillar") or "—"
-    caption     = post.get("caption") or ""
-    hashtags    = post.get("hashtags") or []
-    plat_color  = PLATFORM_COLORS.get(platform.lower(), "#6E6E73")
+    slides = post.get("slides") or []
+    platform = post.get("platform", "")
+    title = post.get("title") or post.get("topic") or "Untitled"
+    pillar = post.get("pillar") or "—"
+    caption = post.get("caption") or ""
+    hashtags = post.get("hashtags") or []
+    plat_color = PLATFORM_COLORS.get(platform.lower(), "#6E6E73")
     sched_color = "#10B981" if time_label == "scheduled" else "#059669"
-    sched_icon  = "📅" if time_label == "scheduled" else "📢"
+    sched_icon = "📅" if time_label == "scheduled" else "📢"
 
     # Image
     url = post.get("thumbnail_url", "")
     if url:
         st.image(url if url.endswith(".png") else url + ".png", use_container_width=True)
     else:
-        st.markdown("<div style='background:#F5F5F7;border-radius:8px;height:90px;display:flex;"
-                    "align-items:center;justify-content:center;color:#A1A1A6;font-size:12px'>"
-                    "No image</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:#F5F5F7;border-radius:8px;height:90px;display:flex;"
+            "align-items:center;justify-content:center;color:#A1A1A6;font-size:12px'>"
+            "No image</div>",
+            unsafe_allow_html=True,
+        )
 
     # Info block — all inline styles, immune to Streamlit theming
     pills = ""
@@ -267,29 +306,45 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     if time_str:
         pills += f"<span style='color:{sched_color};font-size:11px;font-weight:600'>{sched_icon} {time_str}</span>"
 
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div style='font-family:sans-serif;padding:6px 2px 4px'>
       <div style='margin-bottom:5px'>{pills}</div>
       <div style='font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.35;margin-bottom:3px'>{title}</div>
       <div style='font-size:12px;color:#6E6E73'>{pillar}</div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # Expandable caption / slides
     if is_carousel and slides:
         with st.expander(f"View {len(slides)} slides"):
             for j, slide in enumerate(slides):
                 role = slide.get("role", "")
-                tag  = " (cover)" if role == "cover" else " (CTA)" if role == "cta" else ""
-                st.markdown(f"<div style='font-weight:700;color:#1D1D1F;font-size:13px'>{j+1}. {slide.get('headline','')}{tag}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='font-size:12px;color:#6E6E73;margin-bottom:6px'>{slide.get('body','')}</div>", unsafe_allow_html=True)
+                tag = " (cover)" if role == "cover" else " (CTA)" if role == "cta" else ""
+                st.markdown(
+                    f"<div style='font-weight:700;color:#1D1D1F;font-size:13px'>{j + 1}. {slide.get('headline', '')}{tag}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='font-size:12px;color:#6E6E73;margin-bottom:6px'>{slide.get('body', '')}</div>",
+                    unsafe_allow_html=True,
+                )
                 img = slide.get("image_url", "")
                 if img:
-                    st.image(img if img.endswith(".png") else img + ".png", use_container_width=True)
+                    st.image(
+                        img if img.endswith(".png") else img + ".png", use_container_width=True
+                    )
                 st.divider()
     elif caption:
-        tags_html = f"<div style='font-size:11px;color:#0066CC;margin-top:8px;line-height:1.8'>{' '.join(f'#{h}' for h in hashtags)}</div>" if hashtags else ""
-        st.markdown(f"""
+        tags_html = (
+            f"<div style='font-size:11px;color:#0066CC;margin-top:8px;line-height:1.8'>{' '.join(f'#{h}' for h in hashtags)}</div>"
+            if hashtags
+            else ""
+        )
+        st.markdown(
+            f"""
         <details style="margin-top:8px;border:1px solid #E8E8ED;border-radius:10px;overflow:hidden">
           <summary style="padding:10px 14px;font-size:13px;font-weight:600;color:#1D1D1F;
                           background:#F5F5F7;cursor:pointer;list-style:none;
@@ -300,17 +355,22 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
             {caption}{tags_html}
           </div>
         </details>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
+
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_topics, tab_posts, tab_scheduled, tab_calendar, tab_published = st.tabs([
-    f"Topics to Review  {len(pending)}",
-    f"In Progress  {len(content_ready) + len(media_ready)}",
-    f"Scheduled  {len(scheduled)}",
-    "Calendar",
-    f"Published  {len(published)}",
-])
+tab_topics, tab_posts, tab_scheduled, tab_calendar, tab_published = st.tabs(
+    [
+        f"Topics to Review  {len(pending)}",
+        f"In Progress  {len(content_ready) + len(media_ready)}",
+        f"Scheduled  {len(scheduled)}",
+        "Calendar",
+        f"Published  {len(published)}",
+    ]
+)
 
 # ── Topics ────────────────────────────────────────────────────────────────────
 
@@ -329,9 +389,10 @@ with tab_topics:
                         f"**{topic['title']}** &nbsp;"
                         f"<span style='background:{sc}18;color:{sc};border-radius:9999px;"
                         f"padding:2px 10px;font-size:11px;font-weight:700'>Score {score}</span>"
-                        f" &nbsp; {_platform_pill(topic.get('platform',''))}",
-                        unsafe_allow_html=True)
-                    st.caption(f"**{topic.get('pillar','—')}** | {topic.get('summary','')}")
+                        f" &nbsp; {_platform_pill(topic.get('platform', ''))}",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(f"**{topic.get('pillar', '—')}** | {topic.get('summary', '')}")
                     if topic.get("content_angle"):
                         st.markdown(f"*Angle:* {topic['content_angle']}")
                     if topic.get("rationale"):
@@ -340,12 +401,16 @@ with tab_topics:
                         st.markdown(f"🔗 {src}")
                 with c2:
                     tid = topic["id"]
-                    if st.button("Approve", key=f"a_{tid}", use_container_width=True, type="primary"):
+                    if st.button(
+                        "Approve", key=f"a_{tid}", use_container_width=True, type="primary"
+                    ):
                         db.table("topics").update({"status": "approved"}).eq("id", tid).execute()
-                        st.cache_data.clear(); st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()
                     if st.button("Reject", key=f"r_{tid}", use_container_width=True):
                         db.table("topics").update({"status": "rejected"}).eq("id", tid).execute()
-                        st.cache_data.clear(); st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()
 
 # ── In Progress ───────────────────────────────────────────────────────────────
 
@@ -366,17 +431,29 @@ with tab_scheduled:
     if not scheduled:
         st.info("📅  Nothing scheduled yet.")
     else:
-        reg = sorted([p for p in scheduled if p.get("post_type") != "carousel"], key=lambda p: p.get("scheduled_time") or "")
-        car = sorted([p for p in scheduled if p.get("post_type") == "carousel"],  key=lambda p: p.get("scheduled_time") or "")
+        reg = sorted(
+            [p for p in scheduled if p.get("post_type") != "carousel"],
+            key=lambda p: p.get("scheduled_time") or "",
+        )
+        car = sorted(
+            [p for p in scheduled if p.get("post_type") == "carousel"],
+            key=lambda p: p.get("scheduled_time") or "",
+        )
         if reg:
-            st.markdown("<div style='font-size:16px;font-weight:700;color:#1D1D1F;padding:8px 0 4px'>Regular Posts</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='font-size:16px;font-weight:700;color:#1D1D1F;padding:8px 0 4px'>Regular Posts</div>",
+                unsafe_allow_html=True,
+            )
             cols = st.columns(3)
             for i, p in enumerate(reg):
                 with cols[i % 3]:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
         if car:
-            st.markdown("<div style='font-size:16px;font-weight:700;color:#7C3AED;padding:16px 0 4px'>🎠 Carousels</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='font-size:16px;font-weight:700;color:#7C3AED;padding:16px 0 4px'>🎠 Carousels</div>",
+                unsafe_allow_html=True,
+            )
             cols = st.columns(3)
             for i, p in enumerate(car):
                 with cols[i % 3]:
@@ -386,7 +463,6 @@ with tab_scheduled:
 # ── Calendar ──────────────────────────────────────────────────────────────────
 
 with tab_calendar:
-
     # Build date → posts map
     all_active = [p for p in posts if p.get("status") not in ("failed", "draft")]
     date_posts: dict[date, list[dict]] = defaultdict(list)
@@ -400,37 +476,46 @@ with tab_calendar:
                 pass
 
     today = datetime.now(UTC).date()
-    if "cal_year"  not in st.session_state: st.session_state.cal_year  = today.year
-    if "cal_month" not in st.session_state: st.session_state.cal_month = today.month
+    if "cal_year" not in st.session_state:
+        st.session_state.cal_year = today.year
+    if "cal_month" not in st.session_state:
+        st.session_state.cal_month = today.month
 
     # Month nav
     col_p, col_t, col_n = st.columns([1, 4, 1])
     with col_p:
         if st.button("← Prev", use_container_width=True):
             if st.session_state.cal_month == 1:
-                st.session_state.cal_month = 12; st.session_state.cal_year -= 1
+                st.session_state.cal_month = 12
+                st.session_state.cal_year -= 1
             else:
                 st.session_state.cal_month -= 1
             st.rerun()
     with col_t:
         mname = datetime(st.session_state.cal_year, st.session_state.cal_month, 1).strftime("%B %Y")
-        st.markdown(f"<div style='font-size:24px;font-weight:800;letter-spacing:-0.03em;color:#1D1D1F;text-align:center;padding:6px 0'>{mname}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='font-size:24px;font-weight:800;letter-spacing:-0.03em;color:#1D1D1F;text-align:center;padding:6px 0'>{mname}</div>",
+            unsafe_allow_html=True,
+        )
     with col_n:
         if st.button("Next →", use_container_width=True):
             if st.session_state.cal_month == 12:
-                st.session_state.cal_month = 1; st.session_state.cal_year += 1
+                st.session_state.cal_month = 1
+                st.session_state.cal_year += 1
             else:
                 st.session_state.cal_month += 1
             st.rerun()
 
-    year  = st.session_state.cal_year
+    year = st.session_state.cal_year
     month = st.session_state.cal_month
-    cal   = calendar.monthcalendar(year, month)
-    days  = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    cal = calendar.monthcalendar(year, month)
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     header_html = "".join(
         f'<div style="text-align:center;font-size:11px;font-weight:700;letter-spacing:0.08em;'
-        f'text-transform:uppercase;color:#A1A1A6;padding:8px 0">{d}</div>' for d in days)
+        f'text-transform:uppercase;color:#A1A1A6;padding:8px 0">{d}</div>'
+        for d in days
+    )
 
     cells_html = ""
     for week in cal:
@@ -439,16 +524,20 @@ with tab_calendar:
                 cells_html += '<div style="min-height:80px"></div>'
                 continue
             d = date(year, month, day_num)
-            is_today = (d == today)
+            is_today = d == today
             day_posts = date_posts.get(d, [])
             border = "2px solid #0066CC" if is_today else "1px solid #E8E8ED"
             num_color = "#0066CC" if is_today else "#1D1D1F"
             dots = ""
             for p in day_posts[:8]:
                 plat = (p.get("platform") or "").lower()
-                col  = PLATFORM_COLORS.get(plat, "#A1A1A6")
-                dots += f'<div style="width:8px;height:8px;border-radius:50%;background:{col};flex-shrink:0" title="{p.get("topic","")}"></div>'
-            count_html = f'<div style="font-size:10px;font-weight:700;color:#0066CC;margin-top:3px">{len(day_posts)} post{"s" if len(day_posts)!=1 else ""}</div>' if day_posts else ""
+                col = PLATFORM_COLORS.get(plat, "#A1A1A6")
+                dots += f'<div style="width:8px;height:8px;border-radius:50%;background:{col};flex-shrink:0" title="{p.get("topic", "")}"></div>'
+            count_html = (
+                f'<div style="font-size:10px;font-weight:700;color:#0066CC;margin-top:3px">{len(day_posts)} post{"s" if len(day_posts) != 1 else ""}</div>'
+                if day_posts
+                else ""
+            )
             cells_html += f"""
             <div style="background:#fff;border:{border};border-radius:10px;min-height:80px;padding:8px">
               <div style="font-size:13px;font-weight:700;color:{num_color};margin-bottom:4px">{day_num}</div>
@@ -471,21 +560,26 @@ with tab_calendar:
     legend = " &nbsp;&nbsp; ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#6E6E73">'
         f'<span style="width:9px;height:9px;border-radius:50%;background:{c};display:inline-block"></span>{p.title()}</span>'
-        for p, c in PLATFORM_COLORS.items())
+        for p, c in PLATFORM_COLORS.items()
+    )
     st.markdown(f"<div style='margin-top:12px'>{legend}</div>", unsafe_allow_html=True)
 
     # Day detail
     st.markdown("---")
     st.markdown("**View a specific day**")
     col_d, col_m, col_y = st.columns(3)
-    with col_d: sel_day = st.number_input("Day", 1, 31, today.day, label_visibility="collapsed")
+    with col_d:
+        sel_day = st.number_input("Day", 1, 31, today.day, label_visibility="collapsed")
     with col_m:
-        sel_mn = st.selectbox("Month", list(calendar.month_name)[1:], index=month-1, label_visibility="collapsed")
-        sel_m  = list(calendar.month_name).index(sel_mn)
-    with col_y: sel_y = st.number_input("Year", 2026, 2030, year, label_visibility="collapsed")
+        sel_mn = st.selectbox(
+            "Month", list(calendar.month_name)[1:], index=month - 1, label_visibility="collapsed"
+        )
+        sel_m = list(calendar.month_name).index(sel_mn)
+    with col_y:
+        sel_y = st.number_input("Year", 2026, 2030, year, label_visibility="collapsed")
 
     try:
-        sel_date  = date(sel_y, sel_m, int(sel_day))
+        sel_date = date(sel_y, sel_m, int(sel_day))
         day_items = date_posts.get(sel_date, [])
         if day_items:
             st.caption(f"{len(day_items)} post(s) on {sel_date.strftime('%A %d %B %Y')}")
@@ -494,29 +588,36 @@ with tab_calendar:
                 with dcols[i % 3]:
                     with st.container(border=True):
                         status = p.get("status", "")
-                        _post_card(p, _sched_str(p), "scheduled" if status == "scheduled" else "published")
+                        label = "scheduled" if status == "scheduled" else "published"
+                        _post_card(p, _sched_str(p), label)
         else:
             st.caption(f"No posts on {sel_date.strftime('%A %d %B %Y')}.")
     except ValueError:
         st.warning("Invalid date.")
 
     # Monthly summary
-    month_items = [p for d, ps in date_posts.items() for p in ps if d.year == year and d.month == month]
+    month_items = [
+        p for d, ps in date_posts.items() for p in ps if d.year == year and d.month == month
+    ]
     if month_items:
         from collections import Counter
-        pcounts = Counter(p.get("platform","").lower() for p in month_items)
+
+        pcounts = Counter(p.get("platform", "").lower() for p in month_items)
         st.markdown(f"**{mname} — {len(month_items)} posts total**")
         scols = st.columns(len(pcounts))
         for i, (plat, cnt) in enumerate(sorted(pcounts.items(), key=lambda x: -x[1])):
             c = PLATFORM_COLORS.get(plat, "#6E6E73")
             with scols[i]:
-                st.markdown(f"""
+                st.markdown(
+                    f"""
                 <div style="background:{c}12;border:2px solid {c}44;border-radius:12px;
                             padding:14px;text-align:center;margin-top:8px">
                   <div style="font-size:26px;font-weight:800;color:{c}">{cnt}</div>
                   <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;
                               text-transform:uppercase;color:{c};margin-top:3px">{plat}</div>
-                </div>""", unsafe_allow_html=True)
+                </div>""",
+                    unsafe_allow_html=True,
+                )
 
 # ── Published ─────────────────────────────────────────────────────────────────
 
@@ -536,4 +637,7 @@ if failed:
     st.divider()
     with st.expander(f"⚠️  {len(failed)} Failed Post(s) — click to review"):
         for post in failed:
-            st.error(f"**{post.get('title') or post.get('topic','Untitled')}** ({post.get('platform','—')})  \n{post.get('error') or 'No detail'}")
+            title = post.get("title") or post.get("topic", "Untitled")
+            platform = post.get("platform", "—")
+            detail = post.get("error") or "No detail"
+            st.error(f"**{title}** ({platform})  \n{detail}")

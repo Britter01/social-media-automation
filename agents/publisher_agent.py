@@ -35,12 +35,13 @@ from urllib.parse import urlparse
 import httpx
 
 from core.config import Config, config
+from core.models import Platform, Post, PostStatus
 
 # ---------------------------------------------------------------------------
 # Security helpers
 # ---------------------------------------------------------------------------
 _SUPABASE_HOST_SUFFIX = ".supabase.co"
-_ALLOWED_URL_SCHEMES  = {"https"}
+_ALLOWED_URL_SCHEMES = {"https"}
 
 
 def _validate_media_url(url: str | None, label: str = "url") -> str:
@@ -56,16 +57,13 @@ def _validate_media_url(url: str | None, label: str = "url") -> str:
         return url
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_URL_SCHEMES:
-        raise ValueError(
-            f"{label} must use HTTPS (got scheme {parsed.scheme!r}): {url!r}"
-        )
+        raise ValueError(f"{label} must use HTTPS (got scheme {parsed.scheme!r}): {url!r}")
     if not (parsed.netloc.endswith(_SUPABASE_HOST_SUFFIX)):
         raise ValueError(
-            f"{label} must be a Supabase storage URL "
-            f"(got host {parsed.netloc!r}): {url!r}"
+            f"{label} must be a Supabase storage URL (got host {parsed.netloc!r}): {url!r}"
         )
     return url
-from core.models import Platform, Post, PostStatus
+
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +196,9 @@ class PublisherAgent:
                     item_ids.append(item_id)
 
             if len(item_ids) < 2:
-                raise PublishError(f"Instagram carousel needs at least 2 images; got {len(item_ids)}")
+                raise PublishError(
+                    f"Instagram carousel needs at least 2 images; got {len(item_ids)}"
+                )
 
             # 2. Create the carousel container.
             resp = client.post(
@@ -448,10 +448,7 @@ class PublisherAgent:
         _validate_media_url(url, label="video_url")
 
         suffix = ".mp4"
-        tmp = tempfile.NamedTemporaryFile(
-            delete=False, suffix=suffix,
-            prefix=f"btl_{post_id[:8]}_"
-        )
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix=f"btl_{post_id[:8]}_")
         try:
             with httpx.stream("GET", url, timeout=120.0) as resp:
                 resp.raise_for_status()
