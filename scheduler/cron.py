@@ -31,6 +31,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from agents.carousel_agent import CarouselAgent
 from agents.content_agent import ContentAgent
 from agents.publisher_agent import PublisherAgent
+from agents.quality_agent import QualityAgent, QualityError
 from agents.research_agent import ResearchAgent
 from agents.scheduler_agent import SchedulerAgent
 from agents.thumbnail_agent import ThumbnailAgent
@@ -67,6 +68,7 @@ def run_content_pipeline() -> None:
     # Lazily create media agents; they may be unconfigured in some deploys.
     thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
     video_agent = _safe_init(VideoAgent, "video")
+    quality_agent = _safe_init(QualityAgent, "quality")
 
     platforms = config.configured_platforms() or config.platforms
     pairings = _round_robin_platforms(config.content_pillars, platforms)
@@ -78,6 +80,13 @@ def run_content_pipeline() -> None:
             db.insert(post)
             content_agent.generate(post)
             _generate_media(post, thumbnail_agent, video_agent)
+            if quality_agent:
+                try:
+                    quality_agent.review(post)
+                except QualityError as exc:
+                    logger.warning("QC rejected post %s: %s", post.id, exc)
+                    db.update_status(post, PostStatus.FAILED, error=f"QC: {exc}")
+                    continue
             scheduler_agent.schedule(post)
             db.upsert(post)
             created += 1
@@ -159,6 +168,7 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
     """
     thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
     video_agent = _safe_init(VideoAgent, "video")
+    quality_agent = _safe_init(QualityAgent, "quality")
 
     # Track the last scheduled time per platform so each post in a batch
     # lands on a different day rather than all stacking on the same slot.
@@ -171,6 +181,17 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
     for post in posts:
         try:
             _generate_media(post, thumbnail_agent, video_agent)
+            if quality_agent:
+                try:
+                    quality_agent.review(post)
+                except QualityError as exc:
+                    logger.warning("QC rejected post %s: %s", post.id, exc)
+                    post.mark(PostStatus.FAILED, error=f"QC: {exc}")
+                    if persist_insert:
+                        db.insert(post)
+                    else:
+                        db.upsert(post)
+                    continue
             after = last_slot.get(post.platform)
             scheduler_agent.schedule(post, after=after)
             last_slot[post.platform] = post.scheduled_time
