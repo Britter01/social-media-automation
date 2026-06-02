@@ -131,29 +131,22 @@ failed        = by_status(posts, "failed")
 now_utc = datetime.now(UTC)
 
 # Black branded nav bar
-st.markdown(f"""
-<div style="background:#000;padding:0 32px;height:60px;display:flex;align-items:center;
-            justify-content:space-between;border-radius:16px;margin-bottom:8px;
-            border:1px solid rgba(255,255,255,0.08)">
-  <div style="line-height:1">
-    <div style="font-size:24px;font-weight:800;letter-spacing:-0.045em;color:#fff">Brite</div>
-    <div style="font-size:8px;font-weight:300;letter-spacing:0.25em;color:rgba(255,255,255,0.35);text-transform:uppercase;margin-top:2px">Tech Lifestyle</div>
-  </div>
-  <div style="font-size:11px;color:rgba(255,255,255,0.3);font-weight:300">
-    Automation Dashboard &nbsp;·&nbsp; {now_utc.strftime("%d %b %Y  %H:%M UTC")}
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-col_hdr, col_btn = st.columns([5, 1])
+col_logo, col_hdr, col_btn = st.columns([2, 5, 1])
+with col_logo:
+    st.markdown(f"""
+    <div style="background:#000;border-radius:14px;padding:12px 20px;margin-top:4px;
+                display:flex;flex-direction:column;justify-content:center;min-height:68px">
+      <div style="font-size:26px;font-weight:800;letter-spacing:-0.045em;color:#fff;line-height:1">Brite</div>
+      <div style="font-size:8px;font-weight:300;letter-spacing:0.25em;color:rgba(255,255,255,0.4);text-transform:uppercase;margin-top:3px">Tech Lifestyle</div>
+    </div>""", unsafe_allow_html=True)
 with col_hdr:
-    st.markdown("""
-    <div style="padding:20px 0 8px">
-      <div style="font-size:28px;font-weight:800;letter-spacing:-0.04em;color:#1D1D1F">Content Pipeline</div>
-      <div style="font-size:13px;font-weight:300;color:#6E6E73;margin-top:2px;font-style:italic">Technology, beautifully lived.</div>
+    st.markdown(f"""
+    <div style="padding:12px 0 4px">
+      <div style="font-size:26px;font-weight:800;letter-spacing:-0.04em;color:#1D1D1F;line-height:1">Content Pipeline</div>
+      <div style="font-size:12px;font-weight:300;color:#6E6E73;margin-top:4px;font-style:italic">Technology, beautifully lived. &nbsp;·&nbsp; {now_utc.strftime("%d %b %Y  %H:%M UTC")}</div>
     </div>""", unsafe_allow_html=True)
 with col_btn:
-    st.markdown("<div style='padding-top:22px'>", unsafe_allow_html=True)
+    st.markdown("<div style='padding-top:18px'>", unsafe_allow_html=True)
     if st.button("↺  Refresh", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -161,14 +154,14 @@ with col_btn:
 # ── Pipeline flow ─────────────────────────────────────────────────────────────
 
 STAGES = [
-    ("Research",      len(topics),                   "#6E6E73"),
-    ("Pending",       len(pending),                  "#F59E0B"),
-    ("Approved",      len(approved_t),               "#0066CC"),
-    ("Content",       len(content_ready),            "#8B5CF6"),
-    ("Media",         len(media_ready),              "#EC4899"),
-    ("Scheduled",     len(scheduled),                "#10B981"),
-    ("Published",     len(published),                "#059669"),
-    ("Failed",        len(failed),                   "#EF4444"),
+    ("Research",  len(topics),        "#6E6E73"),
+    ("Pending",   len(pending),       "#F59E0B"),
+    ("Approved",  len(approved_t),    "#0066CC"),
+    ("Content",   len(content_ready), "#8B5CF6"),
+    ("Media",     len(media_ready),   "#EC4899"),
+    ("Scheduled", len(scheduled),     "#10B981"),
+    ("Live",      len(published),     "#059669"),
+    ("Failed",    len(failed),        "#EF4444"),
 ]
 
 cols = st.columns(len(STAGES) * 2 - 1)
@@ -238,16 +231,18 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     if meta:
         st.markdown(" &nbsp; ".join(meta), unsafe_allow_html=True)
 
-    st.markdown(f"**{post.get('title') or post.get('topic') or 'Untitled'}**")
-    st.caption(post.get("pillar", "—"))
+    title = post.get("title") or post.get("topic") or "Untitled"
+    pillar = post.get("pillar", "—")
+    st.markdown(f"<div style='font-size:14px;font-weight:700;color:#1D1D1F;margin:6px 0 2px;line-height:1.35'>{title}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:12px;color:#6E6E73;margin-bottom:4px'>{pillar}</div>", unsafe_allow_html=True)
 
     if is_carousel and slides:
         with st.expander(f"View {len(slides)} slides"):
             for j, slide in enumerate(slides):
                 role = slide.get("role", "")
                 tag = " *(cover)*" if role == "cover" else " *(CTA)*" if role == "cta" else ""
-                st.markdown(f"**{j+1}. {slide.get('headline','')}**{tag}")
-                st.caption(slide.get("body", ""))
+                st.markdown(f"<div style='font-weight:700;color:#1D1D1F'>{j+1}. {slide.get('headline','')}{tag}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:13px;color:#6E6E73'>{slide.get('body','')}</div>", unsafe_allow_html=True)
                 img = slide.get("image_url", "")
                 if img:
                     st.image(img if img.endswith(".png") else img + ".png", use_container_width=True)
