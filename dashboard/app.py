@@ -33,7 +33,7 @@ const css = `
   .stApp { background: #F5F5F7 !important; }
   #MainMenu, footer { visibility: hidden; }
   header[data-testid="stHeader"] { background: #000 !important; }
-  .block-container { padding-top: 0.5rem !important; max-width: 1400px !important; }
+  .block-container { padding-top: 3.5rem !important; max-width: 1400px !important; }
   .stTabs [data-baseweb="tab-list"] { background: #fff; border-radius: 12px; padding: 4px; border: 1px solid #E8E8ED; gap: 2px; margin-bottom: 8px; }
   .stTabs [data-baseweb="tab"] { border-radius: 8px; font-family: 'Figtree', sans-serif !important; font-weight: 600 !important; font-size: 13px !important; color: #6E6E73; padding: 8px 18px; background: transparent; }
   .stTabs [aria-selected="true"] { background: #0066CC !important; color: #fff !important; }
