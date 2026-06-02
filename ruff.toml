@@ -12,3 +12,6 @@ select = ["E", "F", "I", "B", "UP", "W"]
 [lint.per-file-ignores]
 # Tests intentionally poke at private attributes and use broad fakes.
 "tests/*" = ["B011"]
+# Dashboard embeds long HTML/CSS strings that cannot be wrapped without
+# changing their content — suppress line-length violations there only.
+"dashboard/app.py" = ["E501"]

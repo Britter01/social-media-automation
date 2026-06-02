@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 import os
 from collections import defaultdict
-from datetime import UTC, datetime, date
+from datetime import UTC, date, datetime
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -342,10 +342,12 @@ with tab_topics:
                     tid = topic["id"]
                     if st.button("Approve", key=f"a_{tid}", use_container_width=True, type="primary"):
                         db.table("topics").update({"status": "approved"}).eq("id", tid).execute()
-                        st.cache_data.clear(); st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()
                     if st.button("Reject", key=f"r_{tid}", use_container_width=True):
                         db.table("topics").update({"status": "rejected"}).eq("id", tid).execute()
-                        st.cache_data.clear(); st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()
 
 # ── In Progress ───────────────────────────────────────────────────────────────
 
@@ -400,15 +402,18 @@ with tab_calendar:
                 pass
 
     today = datetime.now(UTC).date()
-    if "cal_year"  not in st.session_state: st.session_state.cal_year  = today.year
-    if "cal_month" not in st.session_state: st.session_state.cal_month = today.month
+    if "cal_year" not in st.session_state:
+        st.session_state.cal_year = today.year
+    if "cal_month" not in st.session_state:
+        st.session_state.cal_month = today.month
 
     # Month nav
     col_p, col_t, col_n = st.columns([1, 4, 1])
     with col_p:
         if st.button("← Prev", use_container_width=True):
             if st.session_state.cal_month == 1:
-                st.session_state.cal_month = 12; st.session_state.cal_year -= 1
+                st.session_state.cal_month = 12
+                st.session_state.cal_year -= 1
             else:
                 st.session_state.cal_month -= 1
             st.rerun()
@@ -418,7 +423,8 @@ with tab_calendar:
     with col_n:
         if st.button("Next →", use_container_width=True):
             if st.session_state.cal_month == 12:
-                st.session_state.cal_month = 1; st.session_state.cal_year += 1
+                st.session_state.cal_month = 1
+                st.session_state.cal_year += 1
             else:
                 st.session_state.cal_month += 1
             st.rerun()
@@ -478,11 +484,15 @@ with tab_calendar:
     st.markdown("---")
     st.markdown("**View a specific day**")
     col_d, col_m, col_y = st.columns(3)
-    with col_d: sel_day = st.number_input("Day", 1, 31, today.day, label_visibility="collapsed")
+    with col_d:
+        sel_day = st.number_input("Day", 1, 31, today.day, label_visibility="collapsed")
     with col_m:
-        sel_mn = st.selectbox("Month", list(calendar.month_name)[1:], index=month-1, label_visibility="collapsed")
-        sel_m  = list(calendar.month_name).index(sel_mn)
-    with col_y: sel_y = st.number_input("Year", 2026, 2030, year, label_visibility="collapsed")
+        sel_mn = st.selectbox(
+            "Month", list(calendar.month_name)[1:], index=month - 1, label_visibility="collapsed"
+        )
+        sel_m = list(calendar.month_name).index(sel_mn)
+    with col_y:
+        sel_y = st.number_input("Year", 2026, 2030, year, label_visibility="collapsed")
 
     try:
         sel_date  = date(sel_y, sel_m, int(sel_day))
@@ -494,14 +504,17 @@ with tab_calendar:
                 with dcols[i % 3]:
                     with st.container(border=True):
                         status = p.get("status", "")
-                        _post_card(p, _sched_str(p), "scheduled" if status == "scheduled" else "published")
+                        label = "scheduled" if status == "scheduled" else "published"
+                        _post_card(p, _sched_str(p), label)
         else:
             st.caption(f"No posts on {sel_date.strftime('%A %d %B %Y')}.")
     except ValueError:
         st.warning("Invalid date.")
 
     # Monthly summary
-    month_items = [p for d, ps in date_posts.items() for p in ps if d.year == year and d.month == month]
+    month_items = [
+        p for d, ps in date_posts.items() for p in ps if d.year == year and d.month == month
+    ]
     if month_items:
         from collections import Counter
         pcounts = Counter(p.get("platform","").lower() for p in month_items)
@@ -536,4 +549,7 @@ if failed:
     st.divider()
     with st.expander(f"⚠️  {len(failed)} Failed Post(s) — click to review"):
         for post in failed:
-            st.error(f"**{post.get('title') or post.get('topic','Untitled')}** ({post.get('platform','—')})  \n{post.get('error') or 'No detail'}")
+            title = post.get("title") or post.get("topic", "Untitled")
+            platform = post.get("platform", "—")
+            detail = post.get("error") or "No detail"
+            st.error(f"**{title}** ({platform})  \n{detail}")

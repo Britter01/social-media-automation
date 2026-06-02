@@ -21,8 +21,6 @@ Model choice: Sonnet for copy (judgment + brand voice), Imagen Fast for images
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import Literal
 
 import anthropic
 from pydantic import BaseModel, Field
@@ -240,7 +238,8 @@ class CarouselAgent:
         if self._storage is not None:
             return self._storage.upload(path, image_bytes, content_type="image/png")
         # Local fallback
-        import os, tempfile
+        import os
+        import tempfile
         local_path = os.path.join(tempfile.gettempdir(), path.replace("/", "_"))
         with open(local_path, "wb") as fh:
             fh.write(image_bytes)

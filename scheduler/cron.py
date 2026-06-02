@@ -253,8 +253,10 @@ def run_image_refresh() -> None:
     """
     logger.info("=== Image refresh starting ===")
     try:
-        from supabase import create_client
         import uuid as _uuid
+
+        from supabase import create_client
+
         from core.models import Post
 
         sb = create_client(config.supabase_url, config.supabase_key)
@@ -287,7 +289,9 @@ def run_image_refresh() -> None:
                     sb.table("posts").update({
                         "title": plan.cover_headline,
                         "slides": slides,
-                        "thumbnail_url": slides[0]["image_url"] if slides else c.get("thumbnail_url"),
+                        "thumbnail_url": (
+                            slides[0]["image_url"] if slides else c.get("thumbnail_url")
+                        ),
                     }).eq("id", c["id"]).execute()
                     refreshed += 1
                     logger.info("Refreshed carousel %s (%d slides)", c["id"][:8], len(slides))
@@ -317,7 +321,10 @@ def run_image_refresh() -> None:
                     refreshed += 1
                     logger.info("Refreshed thumbnail for post %s", p["id"][:8])
                 except Exception:
-                    logger.exception("Failed refreshing thumbnail for post %s", p.get("id", "?")[:8])
+                    logger.exception(
+                        "Failed refreshing thumbnail for post %s",
+                        p.get("id", "?")[:8],
+                    )
 
         logger.info("=== Image refresh finished: %d asset(s) updated ===", refreshed)
     except Exception:

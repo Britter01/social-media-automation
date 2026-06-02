@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 import httpx
 
 from core.config import Config, config
+from core.models import Platform, Post, PostStatus
 
 # ---------------------------------------------------------------------------
 # Security helpers
@@ -65,7 +66,6 @@ def _validate_media_url(url: str | None, label: str = "url") -> str:
             f"(got host {parsed.netloc!r}): {url!r}"
         )
     return url
-from core.models import Platform, Post, PostStatus
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,9 @@ class PublisherAgent:
                     item_ids.append(item_id)
 
             if len(item_ids) < 2:
-                raise PublishError(f"Instagram carousel needs at least 2 images; got {len(item_ids)}")
+                raise PublishError(
+                    f"Instagram carousel needs at least 2 images; got {len(item_ids)}"
+                )
 
             # 2. Create the carousel container.
             resp = client.post(
