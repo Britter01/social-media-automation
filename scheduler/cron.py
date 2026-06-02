@@ -368,8 +368,7 @@ def run_publisher() -> None:
         try:
             publisher.publish(post)
         except Exception:
-            # publish() already marked it failed; just keep going.
-            logger.warning("Skipping failed post %s", post.id)
+            logger.exception("Publish failed for post %s; continuing", post.id)
         finally:
             try:
                 db.upsert(post)
