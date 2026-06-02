@@ -55,9 +55,7 @@ class CarouselPlan(BaseModel):
     format_type: str = Field(description=f"One of: {_FORMATS}")
     cover_headline: str = Field(description="The carousel title/hook — max 10 words.")
     cover_subtext: str = Field(description="One-sentence teaser shown below the cover headline.")
-    cover_image_prompt: str = Field(
-        description="Visual direction for the cover slide image."
-    )
+    cover_image_prompt: str = Field(description="Visual direction for the cover slide image.")
     slides: list[CarouselSlide] = Field(
         description="4–6 content slides. Each builds on the cover hook."
     )
@@ -75,6 +73,7 @@ class CarouselAgent:
         self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
 
         from google import genai
+
         self._genai_client = genai.Client(api_key=cfg.google_api_key)
         self._genai = genai
 
@@ -82,6 +81,7 @@ class CarouselAgent:
         if cfg.supabase_url and cfg.supabase_key:
             try:
                 from core.storage import get_storage
+
                 self._storage = get_storage(cfg)
             except Exception:
                 logger.warning("Supabase Storage unavailable for carousel images")
@@ -93,6 +93,7 @@ class CarouselAgent:
         slides populated. The source post is not modified.
         """
         import uuid as _uuid
+
         carousel_id = str(_uuid.uuid4())  # fixed before image generation so paths are stable
         plan = self._plan_carousel(source)
         slides_data = self._generate_images(carousel_id, source, plan)
@@ -112,7 +113,10 @@ class CarouselAgent:
         carousel.mark(PostStatus.MEDIA_READY)
         logger.info(
             "Created carousel post %s (%s/%s) with %d slides",
-            carousel.id, carousel.pillar, carousel.platform, len(slides_data),
+            carousel.id,
+            carousel.pillar,
+            carousel.platform,
+            len(slides_data),
         )
         return carousel
 
@@ -152,7 +156,9 @@ class CarouselAgent:
             raise RuntimeError("Claude returned no carousel plan")
         logger.info(
             "Planned carousel '%s' (%s, %d slides)",
-            plan.cover_headline, plan.format_type, len(plan.slides),
+            plan.cover_headline,
+            plan.format_type,
+            len(plan.slides),
         )
         return plan
 
@@ -171,29 +177,33 @@ class CarouselAgent:
         )
 
         # Build the full slide list: cover + content + CTA
-        all_slides = [
-            {
-                "headline": plan.cover_headline,
-                "body": plan.cover_subtext,
-                "prompt": brand_prefix + plan.cover_image_prompt,
-                "role": "cover",
-            }
-        ] + [
-            {
-                "headline": s.headline,
-                "body": s.body,
-                "prompt": brand_prefix + s.image_prompt,
-                "role": "content",
-            }
-            for s in plan.slides
-        ] + [
-            {
-                "headline": plan.cta_headline,
-                "body": plan.cta_body,
-                "prompt": brand_prefix + plan.cta_image_prompt,
-                "role": "cta",
-            }
-        ]
+        all_slides = (
+            [
+                {
+                    "headline": plan.cover_headline,
+                    "body": plan.cover_subtext,
+                    "prompt": brand_prefix + plan.cover_image_prompt,
+                    "role": "cover",
+                }
+            ]
+            + [
+                {
+                    "headline": s.headline,
+                    "body": s.body,
+                    "prompt": brand_prefix + s.image_prompt,
+                    "role": "content",
+                }
+                for s in plan.slides
+            ]
+            + [
+                {
+                    "headline": plan.cta_headline,
+                    "body": plan.cta_body,
+                    "prompt": brand_prefix + plan.cta_image_prompt,
+                    "role": "cta",
+                }
+            ]
+        )
 
         result = []
         for i, slide in enumerate(all_slides):
@@ -213,6 +223,7 @@ class CarouselAgent:
                 image_bytes = images[0].image.image_bytes
 
                 from core.image_utils import add_brand_overlay
+
                 image_bytes = add_brand_overlay(
                     image_bytes,
                     self._cfg.brand_name,
@@ -220,12 +231,14 @@ class CarouselAgent:
                 )
 
                 image_url = self._upload(carousel_id, i, image_bytes)
-                result.append({
-                    "headline": slide["headline"],
-                    "body": slide["body"],
-                    "image_url": image_url,
-                    "role": slide["role"],
-                })
+                result.append(
+                    {
+                        "headline": slide["headline"],
+                        "body": slide["body"],
+                        "image_url": image_url,
+                        "role": slide["role"],
+                    }
+                )
                 logger.debug("Generated carousel slide %d for post %s", i, post.id)
             except Exception:
                 logger.exception("Failed generating image for slide %d of post %s", i, post.id)
@@ -240,6 +253,7 @@ class CarouselAgent:
         # Local fallback
         import os
         import tempfile
+
         local_path = os.path.join(tempfile.gettempdir(), path.replace("/", "_"))
         with open(local_path, "wb") as fh:
             fh.write(image_bytes)

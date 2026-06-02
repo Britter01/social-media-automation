@@ -183,7 +183,8 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
             # Generate carousel variant for Instagram/Facebook posts.
             # Scheduled after the regular post so the two don't compete.
             if carousel_agent and post.platform in (
-                Platform.INSTAGRAM.value, Platform.FACEBOOK.value
+                Platform.INSTAGRAM.value,
+                Platform.FACEBOOK.value,
             ):
                 try:
                     carousel = carousel_agent.create_from_post(post)
@@ -261,7 +262,7 @@ def run_image_refresh() -> None:
 
         sb = create_client(config.supabase_url, config.supabase_key)
         thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
-        carousel_agent  = _safe_init(CarouselAgent,  "carousel")
+        carousel_agent = _safe_init(CarouselAgent, "carousel")
 
         refreshed = 0
 
@@ -274,25 +275,29 @@ def run_image_refresh() -> None:
                 .eq("status", "scheduled")
                 .eq("platform", "instagram")
                 .execute()
-                .data or []
+                .data
+                or []
             )
             for c in carousels:
                 try:
                     source = Post(
-                        pillar=c["pillar"], platform=c["platform"],
+                        pillar=c["pillar"],
+                        platform=c["platform"],
                         topic=c.get("topic", ""),
                         hashtags=list(c.get("hashtags") or []),
                     )
                     new_id = str(_uuid.uuid4())
-                    plan   = carousel_agent._plan_carousel(source)
+                    plan = carousel_agent._plan_carousel(source)
                     slides = carousel_agent._generate_images(new_id, source, plan)
-                    sb.table("posts").update({
-                        "title": plan.cover_headline,
-                        "slides": slides,
-                        "thumbnail_url": (
-                            slides[0]["image_url"] if slides else c.get("thumbnail_url")
-                        ),
-                    }).eq("id", c["id"]).execute()
+                    sb.table("posts").update(
+                        {
+                            "title": plan.cover_headline,
+                            "slides": slides,
+                            "thumbnail_url": (
+                                slides[0]["image_url"] if slides else c.get("thumbnail_url")
+                            ),
+                        }
+                    ).eq("id", c["id"]).execute()
                     refreshed += 1
                     logger.info("Refreshed carousel %s (%d slides)", c["id"][:8], len(slides))
                 except Exception:
@@ -306,18 +311,22 @@ def run_image_refresh() -> None:
                 .eq("post_type", "standard")
                 .eq("status", "scheduled")
                 .execute()
-                .data or []
+                .data
+                or []
             )
             for p in std_posts:
                 try:
                     post_obj = Post(
-                        id=p["id"], pillar=p["pillar"], platform=p["platform"],
-                        topic=p.get("topic", ""), title=p.get("title", ""),
+                        id=p["id"],
+                        pillar=p["pillar"],
+                        platform=p["platform"],
+                        topic=p.get("topic", ""),
+                        title=p.get("title", ""),
                     )
                     thumbnail_agent.generate(post_obj)
-                    sb.table("posts").update(
-                        {"thumbnail_url": post_obj.thumbnail_url}
-                    ).eq("id", p["id"]).execute()
+                    sb.table("posts").update({"thumbnail_url": post_obj.thumbnail_url}).eq(
+                        "id", p["id"]
+                    ).execute()
                     refreshed += 1
                     logger.info("Refreshed thumbnail for post %s", p["id"][:8])
                 except Exception:
@@ -443,9 +452,7 @@ def main() -> None:
             "Set DRY_RUN=false in Railway env vars to go live."
         )
     else:
-        logger.warning(
-            "DRY_RUN=false — posts WILL be published to live platforms!"
-        )
+        logger.warning("DRY_RUN=false — posts WILL be published to live platforms!")
     logger.info(
         "Starting %s automation worker (tz=%s, dry_run=%s)",
         config.brand_name,
