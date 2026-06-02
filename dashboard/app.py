@@ -131,22 +131,29 @@ failed        = by_status(posts, "failed")
 now_utc = datetime.now(UTC)
 
 # Black branded nav bar
-col_logo, col_hdr, col_btn = st.columns([2, 5, 1])
-with col_logo:
-    st.markdown("""
-    <div style="background:#000000;border-radius:14px;padding:16px 20px 14px 20px;
-                display:block;width:100%;box-sizing:border-box;margin-top:16px">
-      <span style="font-size:28px;font-weight:800;letter-spacing:-0.045em;color:#ffffff;display:block;line-height:1.1">Brite</span>
-      <span style="font-size:8px;font-weight:300;letter-spacing:0.25em;color:rgba(255,255,255,0.4);text-transform:uppercase;display:block;margin-top:4px">Tech Lifestyle</span>
-    </div>""", unsafe_allow_html=True)
-with col_hdr:
-    st.markdown(f"""
-    <div style="padding:12px 0 4px">
-      <div style="font-size:26px;font-weight:800;letter-spacing:-0.04em;color:#1D1D1F;line-height:1">Content Pipeline</div>
-      <div style="font-size:12px;font-weight:300;color:#6E6E73;margin-top:4px;font-style:italic">Technology, beautifully lived. &nbsp;·&nbsp; {now_utc.strftime("%d %b %Y  %H:%M UTC")}</div>
-    </div>""", unsafe_allow_html=True)
-with col_btn:
-    st.markdown("<div style='padding-top:18px'>", unsafe_allow_html=True)
+# Full-width branded header bar
+st.markdown(f"""
+<div style="background:#000;border-radius:16px;padding:18px 32px;margin-bottom:16px;
+            display:flex;align-items:center;justify-content:space-between;
+            box-sizing:border-box;width:100%">
+  <div style="display:flex;align-items:center;gap:24px">
+    <div style="line-height:1">
+      <div style="font-size:32px;font-weight:800;letter-spacing:-0.045em;color:#fff">Brite</div>
+      <div style="font-size:8px;font-weight:300;letter-spacing:0.28em;color:rgba(255,255,255,0.35);text-transform:uppercase;margin-top:3px">Tech Lifestyle</div>
+    </div>
+    <div style="width:1px;height:36px;background:rgba(255,255,255,0.1)"></div>
+    <div>
+      <div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.02em">Content Pipeline</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px;font-style:italic">Technology, beautifully lived.</div>
+    </div>
+  </div>
+  <div style="font-size:11px;color:rgba(255,255,255,0.3)">{now_utc.strftime("%d %b %Y  ·  %H:%M UTC")}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Refresh button in its own row, clearly visible
+col_r = st.columns([5, 1])
+with col_r[1]:
     if st.button("↺  Refresh", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -154,14 +161,14 @@ with col_btn:
 # ── Pipeline flow ─────────────────────────────────────────────────────────────
 
 STAGES = [
-    ("Research",  len(topics),        "#6E6E73"),
-    ("Pending",   len(pending),       "#F59E0B"),
-    ("Approved",  len(approved_t),    "#0066CC"),
-    ("Content",   len(content_ready), "#8B5CF6"),
-    ("Media",     len(media_ready),   "#EC4899"),
-    ("Scheduled", len(scheduled),     "#10B981"),
-    ("Live",      len(published),     "#059669"),
-    ("Failed",    len(failed),        "#EF4444"),
+    ("Research", len(topics),        "#6E6E73"),
+    ("Pending",  len(pending),       "#F59E0B"),
+    ("Approved", len(approved_t),    "#0066CC"),
+    ("Content",  len(content_ready), "#8B5CF6"),
+    ("Media",    len(media_ready),   "#EC4899"),
+    ("Sched",    len(scheduled),     "#10B981"),
+    ("Live",     len(published),     "#059669"),
+    ("Failed",   len(failed),        "#EF4444"),
 ]
 
 cols = st.columns(len(STAGES) * 2 - 1)
