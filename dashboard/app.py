@@ -133,8 +133,8 @@ now_utc = datetime.now(UTC)
 # Black branded nav bar
 st.markdown(f"""
 <div style="background:#000;padding:0 32px;height:60px;display:flex;align-items:center;
-            justify-content:space-between;margin:-0.5rem -1rem 0;
-            border-bottom:1px solid rgba(255,255,255,0.08)">
+            justify-content:space-between;border-radius:16px;margin-bottom:8px;
+            border:1px solid rgba(255,255,255,0.08)">
   <div style="line-height:1">
     <div style="font-size:24px;font-weight:800;letter-spacing:-0.045em;color:#fff">Brite</div>
     <div style="font-size:8px;font-weight:300;letter-spacing:0.25em;color:rgba(255,255,255,0.35);text-transform:uppercase;margin-top:2px">Tech Lifestyle</div>
@@ -328,14 +328,14 @@ with tab_scheduled:
         reg = sorted([p for p in scheduled if p.get("post_type") != "carousel"], key=lambda p: p.get("scheduled_time") or "")
         car = sorted([p for p in scheduled if p.get("post_type") == "carousel"],  key=lambda p: p.get("scheduled_time") or "")
         if reg:
-            st.markdown("**Regular Posts**")
+            st.markdown("<div style='font-size:16px;font-weight:700;color:#1D1D1F;padding:8px 0 4px'>Regular Posts</div>", unsafe_allow_html=True)
             cols = st.columns(3)
             for i, p in enumerate(reg):
                 with cols[i % 3]:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
         if car:
-            st.markdown("**🎠 Carousels**")
+            st.markdown("<div style='font-size:16px;font-weight:700;color:#7C3AED;padding:16px 0 4px'>🎠 Carousels</div>", unsafe_allow_html=True)
             cols = st.columns(3)
             for i, p in enumerate(car):
                 with cols[i % 3]:
