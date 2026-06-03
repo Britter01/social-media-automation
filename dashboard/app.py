@@ -636,8 +636,31 @@ with tab_published:
 if failed:
     st.divider()
     with st.expander(f"⚠️  {len(failed)} Failed Post(s) — click to review"):
+        col_retry_all, _ = st.columns([1, 4])
+        with col_retry_all:
+            if st.button("↩ Retry all", key="retry_all_failed", type="primary"):
+                ids = [p["id"] for p in failed if p.get("id")]
+                if ids:
+                    db.table("posts").update({"status": "scheduled", "error": None}).in_(
+                        "id", ids
+                    ).execute()
+                    st.success(
+                        f"Reset {len(ids)} post(s) to scheduled — they'll publish at their next due time."
+                    )
+                    st.rerun()
+
         for post in failed:
             title = post.get("title") or post.get("topic", "Untitled")
             platform = post.get("platform", "—")
             detail = post.get("error") or "No detail"
-            st.error(f"**{title}** ({platform})  \n{detail}")
+            post_id = post.get("id", "")
+            col_err, col_btn = st.columns([5, 1])
+            with col_err:
+                st.error(f"**{title}** ({platform})  \n{detail}")
+            with col_btn:
+                if post_id and st.button("↩ Retry", key=f"retry_{post_id}"):
+                    db.table("posts").update({"status": "scheduled", "error": None}).eq(
+                        "id", post_id
+                    ).execute()
+                    st.success("Reset to scheduled.")
+                    st.rerun()
