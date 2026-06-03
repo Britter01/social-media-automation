@@ -208,7 +208,7 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
                 Platform.FACEBOOK.value,
             ):
                 try:
-                    carousel = carousel_agent.create_from_post(post)
+                    carousel = carousel_agent.create_from_post(post, quality_agent=quality_agent)
                     carousel_after = last_slot.get(post.platform)
                     scheduler_agent.schedule(carousel, after=carousel_after)
                     last_slot[post.platform] = carousel.scheduled_time

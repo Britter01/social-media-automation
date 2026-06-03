@@ -56,7 +56,9 @@ def _regen_standard(sb, rows, agent, dry_run: bool) -> tuple[int, int]:
     return ok, fail
 
 
-def _regen_carousels(sb, rows, carousel_agent, dry_run: bool) -> tuple[int, int]:
+def _regen_carousels(
+    sb, rows, carousel_agent, dry_run: bool, quality_agent=None
+) -> tuple[int, int]:
     import uuid as _uuid
 
     from core.models import Post
@@ -91,7 +93,9 @@ def _regen_carousels(sb, rows, carousel_agent, dry_run: bool) -> tuple[int, int]
             )
             new_id = str(_uuid.uuid4())
             plan = carousel_agent._plan_carousel(source)
-            slides = carousel_agent._generate_images(new_id, source, plan)
+            slides = carousel_agent._generate_images(
+                new_id, source, plan, quality_agent=quality_agent
+            )
             thumbnail_url = slides[0]["image_url"] if slides else None
             sb.table("posts").update(
                 {
@@ -189,9 +193,16 @@ def main() -> int:
 
     if car_rows:
         from agents.carousel_agent import CarouselAgent
+        from agents.quality_agent import QualityAgent
+        from core.config import ConfigError
 
         carousel_agent = CarouselAgent(config)
-        c_ok, c_fail = _regen_carousels(sb, car_rows, carousel_agent, args.dry_run)
+        try:
+            quality_agent = QualityAgent(config)
+        except ConfigError:
+            quality_agent = None
+            logger.warning("QualityAgent unavailable (no Anthropic key) — skipping per-slide QC")
+        c_ok, c_fail = _regen_carousels(sb, car_rows, carousel_agent, args.dry_run, quality_agent)
         ok += c_ok
         fail += c_fail
 

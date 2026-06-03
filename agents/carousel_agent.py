@@ -86,17 +86,18 @@ class CarouselAgent:
             except Exception:
                 logger.warning("Supabase Storage unavailable for carousel images")
 
-    def create_from_post(self, source: Post) -> Post:
+    def create_from_post(self, source: Post, quality_agent=None) -> Post:
         """Generate a carousel Post from an existing post's topic and pillar.
 
         Returns a new Post (different id) with post_type='carousel' and
         slides populated. The source post is not modified.
+        Pass ``quality_agent`` to run per-slide QC before uploading.
         """
         import uuid as _uuid
 
         carousel_id = str(_uuid.uuid4())  # fixed before image generation so paths are stable
         plan = self._plan_carousel(source)
-        slides_data = self._generate_images(carousel_id, source, plan)
+        slides_data = self._generate_images(carousel_id, source, plan, quality_agent=quality_agent)
 
         carousel = Post(
             id=carousel_id,
@@ -162,7 +163,9 @@ class CarouselAgent:
         )
         return plan
 
-    def _generate_images(self, carousel_id: str, post: Post, plan: CarouselPlan) -> list[dict]:
+    def _generate_images(
+        self, carousel_id: str, post: Post, plan: CarouselPlan, quality_agent=None
+    ) -> list[dict]:
         """Generate and upload one image per slide; return slide dicts."""
         from google.genai import types
 
@@ -221,17 +224,37 @@ class CarouselAgent:
                 if not images:
                     logger.warning("Imagen returned no image for slide %d; skipping", i)
                     continue
-                image_bytes = images[0].image.image_bytes
+                raw_bytes = images[0].image.image_bytes
 
                 from core.image_utils import add_brand_overlay
 
-                image_bytes = add_brand_overlay(
-                    image_bytes,
+                final_bytes = add_brand_overlay(
+                    raw_bytes,
                     self._cfg.brand_name,
                     self._cfg.brand_tagline,
                 )
 
-                image_url = self._upload(carousel_id, i, image_bytes)
+                # QC check — retry overlay once (free) if it fails; skip Imagen retry
+                if quality_agent is not None:
+                    from agents.quality_agent import QualityError
+
+                    try:
+                        quality_agent.check_image_bytes(post, final_bytes, label=f"slide {i}")
+                    except QualityError as exc:
+                        logger.warning("QC: slide %d failed (%s) — retrying overlay", i, exc)
+                        final_bytes = add_brand_overlay(
+                            raw_bytes,
+                            self._cfg.brand_name,
+                            self._cfg.brand_tagline,
+                        )
+                        try:
+                            quality_agent.check_image_bytes(post, final_bytes, label=f"slide {i}")
+                        except QualityError:
+                            logger.warning(
+                                "QC: slide %d still failing after retry — using anyway", i
+                            )
+
+                image_url = self._upload(carousel_id, i, final_bytes)
                 result.append(
                     {
                         "headline": slide["headline"],
