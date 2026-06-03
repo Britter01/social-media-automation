@@ -16,6 +16,11 @@ Logo placement:
   graphics produce high-contrast edges).  The logo is placed in whichever
   corner has the least activity, keeping it away from any writing already
   present in the photo.
+
+Logo colour:
+  After the corner is chosen, the average brightness of that region is
+  measured.  Light backgrounds get the dark/black logo; dark backgrounds
+  get the white logo.  No manual override needed.
 """
 
 from __future__ import annotations
@@ -36,6 +41,9 @@ _LOGO_WIDTH_RATIO = 0.15  # logo width as a fraction of the photo width
 _LOGO_MIN_WIDTH = 80  # pixels
 _LOGO_MAX_WIDTH = 160  # pixels
 _PAD = 18  # pixels of padding from each edge
+
+# Brightness threshold: regions above this are considered "light" → use dark logo
+_LIGHT_THRESHOLD = 140  # 0–255 greyscale average
 
 # Pre-computed content bbox inside the 1024×1024 logo canvas (alpha getbbox result)
 _LOGO_CONTENT_BOX = (264, 386, 758, 623)
@@ -80,6 +88,13 @@ def _quietest_corner(
     return best_pos
 
 
+def _corner_is_light(img, x: int, y: int, w: int, h: int) -> bool:
+    """Return True if the average greyscale brightness of the region exceeds the threshold."""
+    region = img.crop((x, y, x + w, y + h)).convert("L")
+    pixels = list(region.getdata())
+    return (sum(pixels) / len(pixels)) > _LIGHT_THRESHOLD
+
+
 def add_brand_overlay(
     image_bytes: bytes,
     brand_name: str = "Brite Tech Lifestyle",
@@ -89,10 +104,9 @@ def add_brand_overlay(
 ) -> bytes:
     """Composite the brand logo PNG onto *image_bytes*.
 
-    Scales the logo to ~15% of the image width and places it in whichever
-    corner has the least visual activity (text and busy areas score high;
-    the logo lands in the quietest corner to stay out of the way).
-    Pass ``dark_logo=True`` when overlaying on a light/white background.
+    Scales the logo to ~15% of the image width, places it in whichever corner
+    has the least visual activity, then auto-selects white or black logo based
+    on the brightness of that corner region.
 
     Returns PNG bytes with the logo applied.  If Pillow is unavailable or the
     logo file is missing, the original bytes are returned unchanged.
@@ -103,30 +117,47 @@ def add_brand_overlay(
         logger.warning("Pillow not installed; skipping brand overlay")
         return image_bytes
 
-    logo_path = _LOGO_BLACK if dark_logo else _LOGO_WHITE
-    if not os.path.exists(logo_path):
-        logger.warning("Brand logo not found at %s; skipping overlay", logo_path)
-        return image_bytes
-
-    try:
-        logo_full = Image.open(logo_path).convert("RGBA")
-    except Exception:
-        logger.warning("Could not load brand logo; skipping overlay", exc_info=True)
-        return image_bytes
-
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = img.size
 
     # Crop to just the visible wordmark — removes blank transparent margins
-    logo_cropped = logo_full.crop(_LOGO_CONTENT_BOX)
+    logo_ref_path = _LOGO_WHITE  # use either variant just to get dimensions
+    if not os.path.exists(logo_ref_path):
+        logger.warning("Brand logo not found at %s; skipping overlay", logo_ref_path)
+        return image_bytes
+
+    try:
+        logo_full_ref = Image.open(logo_ref_path).convert("RGBA")
+    except Exception:
+        logger.warning("Could not load brand logo; skipping overlay", exc_info=True)
+        return image_bytes
+
+    logo_cropped_ref = logo_full_ref.crop(_LOGO_CONTENT_BOX)
 
     # Scale proportionally to a sensible width for this image
     target_w = int(max(_LOGO_MIN_WIDTH, min(_LOGO_MAX_WIDTH, width * _LOGO_WIDTH_RATIO)))
-    target_h = int(logo_cropped.height * target_w / logo_cropped.width)
-    logo_scaled = logo_cropped.resize((target_w, target_h), Image.LANCZOS)
+    target_h = int(logo_cropped_ref.height * target_w / logo_cropped_ref.width)
 
     # Pick the corner furthest from any writing or busy graphics
     paste_x, paste_y = _quietest_corner(img, target_w, target_h, _PAD)
+
+    # Auto-select logo colour: light background → black logo, dark → white logo
+    light_bg = _corner_is_light(img, paste_x, paste_y, target_w, target_h)
+    logo_path = _LOGO_BLACK if light_bg else _LOGO_WHITE
+    logger.debug(
+        "Corner brightness: %s → using %s logo",
+        "light" if light_bg else "dark",
+        "black" if light_bg else "white",
+    )
+
+    try:
+        logo_full = Image.open(logo_path).convert("RGBA")
+    except Exception:
+        logger.warning("Could not load brand logo %s; skipping overlay", logo_path, exc_info=True)
+        return image_bytes
+
+    logo_cropped = logo_full.crop(_LOGO_CONTENT_BOX)
+    logo_scaled = logo_cropped.resize((target_w, target_h), Image.LANCZOS)
 
     # Composite logo onto a blank RGBA layer then merge with photo
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
