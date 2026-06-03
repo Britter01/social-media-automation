@@ -45,8 +45,81 @@ _PAD = 18  # pixels of padding from each edge
 # Brightness threshold: regions above this are considered "light" → use dark logo
 _LIGHT_THRESHOLD = 140  # 0–255 greyscale average
 
+# Bar-crop settings
+_MAX_BAR_RATIO = 0.22  # ignore bars taller than 22% of image (probably intentional design)
+_MIN_BAR_ROWS = 4  # require at least this many consecutive low-variance rows to call it a bar
+_BAR_VAR_FRACTION = 0.20  # a bar row must have <20% of the median photo variance
+
 # Pre-computed content bbox inside the 1024×1024 logo canvas (alpha getbbox result)
 _LOGO_CONTENT_BOX = (264, 386, 758, 623)
+
+
+def _crop_hallucinated_bars(img):
+    """Detect and remove solid-colour header/footer bars hallucinated by Imagen.
+
+    Measures per-row pixel variance in grayscale.  A flat-colour bar (text
+    header/footer added by Imagen) has very low variance; real photo content
+    has high variance.  Consecutive low-variance rows at the top and/or bottom
+    are cropped off and the image is resized back to its original dimensions so
+    the aspect ratio is preserved.
+
+    Returns the (possibly cropped+resized) image unchanged if no bars are found.
+    """
+    from PIL import Image
+
+    gray = img.convert("L")
+    w, h = img.size
+    max_rows = int(h * _MAX_BAR_RATIO)
+    sample_step = max(1, w // 64)  # sample ~64 pixels per row for speed
+
+    def _row_var(y: int) -> float:
+        row = [gray.getpixel((x, y)) for x in range(0, w, sample_step)]
+        mean = sum(row) / len(row)
+        return sum((p - mean) ** 2 for p in row) / len(row)
+
+    # Estimate typical photo variance from the middle third of the image
+    mid_ys = range(h // 3, 2 * h // 3, max(1, h // 30))
+    mid_vars = [_row_var(y) for y in mid_ys]
+    if not mid_vars:
+        return img
+    mid_median = sorted(mid_vars)[len(mid_vars) // 2]
+    bar_threshold = mid_median * _BAR_VAR_FRACTION
+
+    # Scan from top: count consecutive low-variance rows
+    top_crop = 0
+    run = 0
+    for y in range(max_rows):
+        if _row_var(y) < bar_threshold:
+            run += 1
+        else:
+            break
+    if run >= _MIN_BAR_ROWS:
+        top_crop = run
+
+    # Scan from bottom
+    bottom_crop = h
+    run = 0
+    for y in range(h - 1, h - 1 - max_rows, -1):
+        if _row_var(y) < bar_threshold:
+            run += 1
+        else:
+            break
+    if run >= _MIN_BAR_ROWS:
+        bottom_crop = h - run
+
+    if top_crop == 0 and bottom_crop == h:
+        return img  # nothing to crop
+
+    cropped = img.crop((0, top_crop, w, bottom_crop))
+    result = cropped.resize((w, h), Image.LANCZOS)
+    logger.info(
+        "Cropped hallucinated bars: top=%dpx bottom=%dpx on %dx%d image",
+        top_crop,
+        h - bottom_crop,
+        w,
+        h,
+    )
+    return result
 
 
 def _quietest_corner(
@@ -119,6 +192,9 @@ def add_brand_overlay(
 
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = img.size
+
+    # Remove any solid-colour header/footer bar hallucinated by Imagen
+    img = _crop_hallucinated_bars(img)
 
     # Crop to just the visible wordmark — removes blank transparent margins
     logo_ref_path = _LOGO_WHITE  # use either variant just to get dimensions
