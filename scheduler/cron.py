@@ -318,7 +318,7 @@ def run_image_refresh() -> None:
 
         refreshed = 0
 
-        # Carousel slides — re-plan and re-generate for scheduled carousels
+        # Carousel slides — only carousels that are missing slides entirely
         if carousel_agent:
             carousels = (
                 sb.table("posts")
@@ -326,6 +326,7 @@ def run_image_refresh() -> None:
                 .eq("post_type", "carousel")
                 .eq("status", "scheduled")
                 .eq("platform", "instagram")
+                .is_("thumbnail_url", "null")
                 .execute()
                 .data
                 or []
