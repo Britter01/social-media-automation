@@ -271,12 +271,12 @@ st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 PLATFORM_COLORS = {
-    "instagram": "#C2185B",   # deep pink
-    "facebook": "#1565C0",    # deep blue
-    "twitter": "#00897B",     # teal
-    "linkedin": "#E65100",    # burnt orange
-    "tiktok": "#43A047",      # medium green (bright enough to read at small sizes)
-    "youtube": "#B71C1C",     # dark red
+    "instagram": "#C2185B",  # deep pink
+    "facebook": "#1565C0",  # deep blue
+    "twitter": "#00897B",  # teal
+    "linkedin": "#E65100",  # burnt orange
+    "tiktok": "#43A047",  # medium green (bright enough to read at small sizes)
+    "youtube": "#B71C1C",  # dark red
 }
 
 

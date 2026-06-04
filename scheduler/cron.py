@@ -406,9 +406,7 @@ def run_image_refresh() -> None:
                             update["error"] = None
                         sb.table("posts").update(update).eq("id", p["id"]).execute()
                         refreshed += 1
-                        logger.info(
-                            "Refreshed %s thumbnail for post %s", status, p["id"][:8]
-                        )
+                        logger.info("Refreshed %s thumbnail for post %s", status, p["id"][:8])
                     except Exception:
                         logger.exception(
                             "Failed refreshing thumbnail for post %s", p.get("id", "?")[:8]

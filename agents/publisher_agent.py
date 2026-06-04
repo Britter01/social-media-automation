@@ -153,9 +153,7 @@ class PublisherAgent:
                 return
             if status == "ERROR":
                 detail = data.get("status", "no detail returned")
-                raise PublishError(
-                    f"Instagram {label} entered ERROR state: {detail}"
-                )
+                raise PublishError(f"Instagram {label} entered ERROR state: {detail}")
             time.sleep(3)
         raise PublishError(f"Instagram {label} did not reach FINISHED status after 45 seconds")
 
