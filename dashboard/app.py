@@ -42,11 +42,11 @@ const css = `
   .stButton > button { font-family: 'Figtree', sans-serif !important; font-weight: 600 !important; border-radius: 9999px !important; }
   .stButton > button[kind="primary"] { background: #0066CC !important; border-color: #0066CC !important; color: #fff !important; }
   [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 16px !important; border-color: #E8E8ED !important; background: #fff; }
-  [data-testid="stExpander"] { border: 1px solid #E8E8ED !important; border-radius: 12px !important; overflow: hidden !important; background: #fff !important; margin-bottom: 8px !important; }
-  [data-testid="stExpander"] summary { padding: 10px 14px !important; font-size: 13px !important; font-weight: 600 !important; color: #1D1D1F !important; background: #F5F5F7 !important; cursor: pointer !important; list-style: none !important; display: flex !important; align-items: center !important; gap: 8px !important; }
+  [data-testid="stExpander"] details { border: 1px solid #E8E8ED !important; border-radius: 12px !important; overflow: hidden !important; background: #fff !important; margin-bottom: 8px !important; }
+  [data-testid="stExpander"] summary { padding: 10px 14px !important; font-size: 13px !important; font-weight: 600 !important; color: #1D1D1F !important; background: #F5F5F7 !important; cursor: pointer !important; list-style: none !important; }
   [data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
-  [data-testid="stExpander"] summary svg { color: #6E6E73 !important; }
-  [data-testid="stExpander"] > div:last-child { padding: 12px 14px !important; background: #fff !important; }
+  [data-testid="stExpander"] summary p { font-size: 13px !important; font-weight: 600 !important; color: #1D1D1F !important; margin: 0 !important; }
+  [data-testid="stExpander"] details > div { padding: 12px 14px !important; background: #fff !important; }
 `;
 const style = document.createElement('style');
 style.textContent = css;
@@ -251,12 +251,12 @@ st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 PLATFORM_COLORS = {
-    "instagram": "#E1306C",
-    "facebook": "#1877F2",
-    "twitter": "#1DA1F2",
-    "linkedin": "#0A66C2",
-    "tiktok": "#010101",
-    "youtube": "#FF0000",
+    "instagram": "#C2185B",   # deep pink
+    "facebook": "#1565C0",    # deep blue
+    "twitter": "#00897B",     # teal
+    "linkedin": "#E65100",    # burnt orange
+    "tiktok": "#2E7D32",      # dark green
+    "youtube": "#B71C1C",     # dark red
 }
 
 
@@ -554,7 +554,7 @@ with tab_calendar:
             for p in day_posts[:8]:
                 plat = (p.get("platform") or "").lower()
                 col = PLATFORM_COLORS.get(plat, "#A1A1A6")
-                dots += f'<div style="width:8px;height:8px;border-radius:50%;background:{col};flex-shrink:0" title="{p.get("topic", "")}"></div>'
+                dots += f'<div style="width:11px;height:11px;border-radius:50%;background:{col};flex-shrink:0;border:2px solid rgba(0,0,0,0.15)" title="{p.get("topic", "")}"></div>'
             count_html = (
                 f'<div style="font-size:10px;font-weight:700;color:#0066CC;margin-top:3px">{len(day_posts)} post{"s" if len(day_posts) != 1 else ""}</div>'
                 if day_posts
@@ -581,7 +581,7 @@ with tab_calendar:
     # Legend
     legend = " &nbsp;&nbsp; ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#6E6E73">'
-        f'<span style="width:9px;height:9px;border-radius:50%;background:{c};display:inline-block"></span>{p.title()}</span>'
+        f'<span style="width:12px;height:12px;border-radius:50%;background:{c};display:inline-block;border:2px solid rgba(0,0,0,0.15)"></span>{p.title()}</span>'
         for p, c in PLATFORM_COLORS.items()
     )
     st.markdown(f"<div style='margin-top:12px'>{legend}</div>", unsafe_allow_html=True)
