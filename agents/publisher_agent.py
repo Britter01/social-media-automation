@@ -144,14 +144,18 @@ class PublisherAgent:
         for attempt in range(15):
             resp = client.get(
                 f"https://graph.facebook.com/v19.0/{container_id}",
-                params={"fields": "status_code", "access_token": token},
+                params={"fields": "status_code,status", "access_token": token},
             )
             resp.raise_for_status()
-            status = resp.json().get("status_code", "")
+            data = resp.json()
+            status = data.get("status_code", "")
             if status == "FINISHED":
                 return
             if status == "ERROR":
-                raise PublishError(f"Instagram {label} entered ERROR state — image may be inaccessible or unsupported")
+                detail = data.get("status", "no detail returned")
+                raise PublishError(
+                    f"Instagram {label} entered ERROR state: {detail}"
+                )
             time.sleep(3)
         raise PublishError(f"Instagram {label} did not reach FINISHED status after 45 seconds")
 
