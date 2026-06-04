@@ -162,6 +162,11 @@ class PublisherAgent:
     def _publish_instagram(self, post: Post) -> str:
         self._cfg.require("instagram_access_token", "instagram_business_account_id")
         if post.post_type == "carousel" and post.slides:
+            if len(post.slides) < 2:
+                raise PublishError(
+                    f"Instagram carousel requires at least 2 slides; this post only has "
+                    f"{len(post.slides)} — wait for the nightly image refresh to complete it"
+                )
             return self._publish_instagram_carousel(post)
         if not post.thumbnail_url:
             raise PublishError("Instagram requires an image (thumbnail_url)")
@@ -260,6 +265,11 @@ class PublisherAgent:
     def _publish_facebook(self, post: Post) -> str:
         self._cfg.require("facebook_page_id", "instagram_access_token")
         if post.post_type == "carousel" and post.slides:
+            if len(post.slides) < 2:
+                raise PublishError(
+                    f"Facebook carousel requires at least 2 slides; this post only has "
+                    f"{len(post.slides)} — wait for the nightly image refresh to complete it"
+                )
             return self._publish_facebook_carousel(post)
 
         page_id = self._cfg.facebook_page_id

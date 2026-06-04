@@ -124,6 +124,38 @@ def _check_password() -> bool:
 if not _check_password():
     st.stop()
 
+st.markdown("""
+<style>
+[data-testid="stExpander"] details {
+    border: 1px solid #E8E8ED !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    margin-bottom: 8px !important;
+}
+[data-testid="stExpander"] summary {
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #1D1D1F !important;
+    background: #F5F5F7 !important;
+    cursor: pointer !important;
+    list-style: none !important;
+}
+[data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
+[data-testid="stExpander"] summary p {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #1D1D1F !important;
+    margin: 0 !important;
+}
+[data-testid="stExpander"] details > div {
+    padding: 12px 14px !important;
+    background: #fff !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
 
