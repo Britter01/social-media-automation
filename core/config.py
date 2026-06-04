@@ -142,6 +142,9 @@ class Config:
             "tiktok",
         ]
     )
+    # Comma-separated list of platforms to skip entirely (e.g. "twitter,youtube").
+    # Set DISABLED_PLATFORMS in Railway to pause a platform without removing its credentials.
+    disabled_platforms: list[str] = field(default_factory=list)
 
     # Themes the research agent scans for trending topics. Free text — the
     # model maps each topic onto one of the content pillars above.
@@ -194,6 +197,11 @@ class Config:
             min_topic_relevance=_get_int("MIN_TOPIC_RELEVANCE", 70),
             topics_per_run=_get_int("TOPICS_PER_RUN", 3),
             require_topic_approval=_get_bool("REQUIRE_TOPIC_APPROVAL", True),
+            disabled_platforms=[
+                p.strip().lower()
+                for p in (_get("DISABLED_PLATFORMS") or "").split(",")
+                if p.strip()
+            ],
         )
 
     def require(self, *names: str) -> None:
@@ -208,13 +216,16 @@ class Config:
             raise ConfigError(f"Missing required configuration: {env_names}")
 
     def configured_platforms(self) -> list[str]:
-        """Return the subset of platforms that have credentials present.
+        """Return the subset of platforms that have credentials present and are not disabled.
 
         Lets the pipeline degrade gracefully: a missing TikTok token skips
-        TikTok rather than failing the whole run.
+        TikTok rather than failing the whole run.  Platforms listed in
+        DISABLED_PLATFORMS are excluded even if credentials are present.
         """
         available = []
         for platform in self.platforms:
+            if platform in self.disabled_platforms:
+                continue
             if platform == "instagram" and self.instagram_access_token:
                 available.append(platform)
             elif platform == "facebook" and self.facebook_page_id and self.instagram_access_token:
