@@ -86,6 +86,10 @@ class _FakeClient:
             return _FakeResponse({"id": "published-1"})
         raise AssertionError(f"unexpected url {url}")
 
+    def get(self, url, **kwargs):
+        # Container status check — always return FINISHED
+        return _FakeResponse({"status_code": "FINISHED"})
+
 
 def test_instagram_publish_happy_path(base_config, monkeypatch):
     monkeypatch.setattr(httpx, "Client", _FakeClient)
