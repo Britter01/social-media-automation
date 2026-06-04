@@ -234,7 +234,7 @@ class CarouselAgent:
                     self._cfg.brand_tagline,
                 )
 
-                # QC check — retry overlay once (free) if it fails; skip Imagen retry
+                # QC check — retry overlay once (free) if it fails; skip slide if still bad
                 if quality_agent is not None:
                     from agents.quality_agent import QualityError
 
@@ -249,10 +249,11 @@ class CarouselAgent:
                         )
                         try:
                             quality_agent.check_image_bytes(post, final_bytes, label=f"slide {i}")
-                        except QualityError:
+                        except QualityError as exc2:
                             logger.warning(
-                                "QC: slide %d still failing after retry — using anyway", i
+                                "QC: slide %d still failing after retry (%s) — skipping", i, exc2
                             )
+                            continue
 
                 image_url = self._upload(carousel_id, i, final_bytes)
                 result.append(
