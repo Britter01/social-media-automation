@@ -45,6 +45,7 @@ class PostStatus(StrEnum):
     PUBLISHING = "publishing"
     PUBLISHED = "published"
     FAILED = "failed"
+    DISMISSED = "dismissed"  # soft-deleted; kept in DB but ignored by all pipeline jobs
 
 
 class TopicStatus(StrEnum):

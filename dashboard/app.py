@@ -691,11 +691,13 @@ if failed:
                     )
                     st.rerun()
         with col_delete_all:
-            if st.button("🗑 Delete all", key="delete_all_failed"):
+            if st.button("🗑 Dismiss all", key="delete_all_failed"):
                 ids = [p["id"] for p in failed if p.get("id")]
                 if ids:
-                    db.table("posts").delete().in_("id", ids).execute()
-                    st.success(f"Deleted {len(ids)} failed post(s).")
+                    db.table("posts").update({"status": "dismissed"}).in_("id", ids).execute()
+                    st.success(
+                        f"Dismissed {len(ids)} failed post(s) — kept in Supabase, hidden here."
+                    )
                     st.rerun()
 
         for post in failed:
@@ -714,6 +716,6 @@ if failed:
                     st.success("Reset to scheduled.")
                     st.rerun()
             with col_del:
-                if post_id and st.button("🗑 Delete", key=f"delete_{post_id}"):
-                    db.table("posts").delete().eq("id", post_id).execute()
+                if post_id and st.button("🗑 Dismiss", key=f"delete_{post_id}"):
+                    db.table("posts").update({"status": "dismissed"}).eq("id", post_id).execute()
                     st.rerun()
