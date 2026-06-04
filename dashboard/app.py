@@ -42,18 +42,44 @@ const css = `
   .stButton > button { font-family: 'Figtree', sans-serif !important; font-weight: 600 !important; border-radius: 9999px !important; }
   .stButton > button[kind="primary"] { background: #0066CC !important; border-color: #0066CC !important; color: #fff !important; }
   [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 16px !important; border-color: #E8E8ED !important; background: #fff; }
-  [data-testid="stExpander"] details { border: 1px solid #E8E8ED !important; border-radius: 12px !important; overflow: hidden !important; background: #fff !important; margin-bottom: 8px !important; }
-  [data-testid="stExpander"] summary { padding: 10px 14px !important; font-size: 13px !important; font-weight: 600 !important; color: #1D1D1F !important; background: #F5F5F7 !important; cursor: pointer !important; list-style: none !important; }
-  [data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
-  [data-testid="stExpander"] summary p { font-size: 13px !important; font-weight: 600 !important; color: #1D1D1F !important; margin: 0 !important; }
-  [data-testid="stExpander"] details > div { padding: 12px 14px !important; background: #fff !important; }
 `;
 const style = document.createElement('style');
 style.textContent = css;
 window.parent.document.head.appendChild(style);
 
+// Apply expander styles directly as inline styles (bypasses Streamlit's emotion CSS)
+function styleExpanders() {
+  const doc = window.parent.document;
+  doc.querySelectorAll('[data-testid="stExpander"]').forEach(function(exp) {
+    const details = exp.querySelector('details');
+    if (details && !details.dataset.btlStyled) {
+      details.dataset.btlStyled = '1';
+      details.style.border = '1px solid #E8E8ED';
+      details.style.borderRadius = '12px';
+      details.style.overflow = 'hidden';
+      details.style.background = '#fff';
+      details.style.marginBottom = '8px';
+    }
+    const summary = exp.querySelector('summary');
+    if (summary && !summary.dataset.btlStyled) {
+      summary.dataset.btlStyled = '1';
+      summary.style.padding = '10px 14px';
+      summary.style.fontSize = '13px';
+      summary.style.fontWeight = '600';
+      summary.style.color = '#1D1D1F';
+      summary.style.background = '#F5F5F7';
+      summary.style.cursor = 'pointer';
+      summary.style.listStyle = 'none';
+    }
+  });
+}
+
+// Run on load and on every DOM change (Streamlit re-renders frequently)
+styleExpanders();
+const observer = new MutationObserver(styleExpanders);
+observer.observe(window.parent.document.body, { childList: true, subtree: true });
+
 // Align "TECH LIFESTYLE" to exactly match the width of "Brite"
-// Must measure as inline to get true text width (display:block returns container width)
 function alignBriteSub() {
   const brite = window.parent.document.querySelector('.btl-brite');
   const sub   = window.parent.document.querySelector('.btl-sub');
@@ -123,38 +149,6 @@ def _check_password() -> bool:
 
 if not _check_password():
     st.stop()
-
-st.markdown("""
-<style>
-[data-testid="stExpander"] details {
-    border: 1px solid #E8E8ED !important;
-    border-radius: 12px !important;
-    overflow: hidden !important;
-    background: #fff !important;
-    margin-bottom: 8px !important;
-}
-[data-testid="stExpander"] summary {
-    padding: 10px 14px !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: #1D1D1F !important;
-    background: #F5F5F7 !important;
-    cursor: pointer !important;
-    list-style: none !important;
-}
-[data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
-[data-testid="stExpander"] summary p {
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: #1D1D1F !important;
-    margin: 0 !important;
-}
-[data-testid="stExpander"] details > div {
-    padding: 12px 14px !important;
-    background: #fff !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
