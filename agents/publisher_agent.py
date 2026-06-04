@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -135,9 +136,35 @@ class PublisherAgent:
 
     # --- Instagram (Graph API) ------------------------------------------
 
+    @staticmethod
+    def _await_instagram_container(
+        client: httpx.Client, container_id: str, token: str, label: str = "container"
+    ) -> None:
+        """Poll until the Instagram media container is FINISHED (or raise on ERROR/timeout)."""
+        for _attempt in range(15):
+            resp = client.get(
+                f"https://graph.facebook.com/v19.0/{container_id}",
+                params={"fields": "status_code,status", "access_token": token},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            status = data.get("status_code", "")
+            if status == "FINISHED":
+                return
+            if status == "ERROR":
+                detail = data.get("status", "no detail returned")
+                raise PublishError(f"Instagram {label} entered ERROR state: {detail}")
+            time.sleep(3)
+        raise PublishError(f"Instagram {label} did not reach FINISHED status after 45 seconds")
+
     def _publish_instagram(self, post: Post) -> str:
         self._cfg.require("instagram_access_token", "instagram_business_account_id")
         if post.post_type == "carousel" and post.slides:
+            if len(post.slides) < 2:
+                raise PublishError(
+                    f"Instagram carousel requires at least 2 slides; this post only has "
+                    f"{len(post.slides)} — wait for the nightly image refresh to complete it"
+                )
             return self._publish_instagram_carousel(post)
         if not post.thumbnail_url:
             raise PublishError("Instagram requires an image (thumbnail_url)")
@@ -162,7 +189,10 @@ class PublisherAgent:
             if not container_id:
                 raise PublishError("Instagram did not return a container id")
 
-            # 2. Publish the container.
+            # 2. Wait for Instagram to finish processing the image.
+            self._await_instagram_container(client, container_id, token)
+
+            # 3. Publish the container.
             publish = client.post(
                 f"{base}/media_publish",
                 data={"creation_id": container_id, "access_token": token},
@@ -179,7 +209,7 @@ class PublisherAgent:
         with httpx.Client(timeout=120.0) as client:
             # 1. Create an item container for each slide.
             item_ids = []
-            for slide in post.slides:
+            for i, slide in enumerate(post.slides):
                 image_url = slide.get("image_url", "")
                 if not image_url:
                     continue
@@ -194,6 +224,7 @@ class PublisherAgent:
                 resp.raise_for_status()
                 item_id = resp.json().get("id")
                 if item_id:
+                    self._await_instagram_container(client, item_id, token, label=f"slide {i}")
                     item_ids.append(item_id)
 
             if len(item_ids) < 2:
@@ -216,7 +247,10 @@ class PublisherAgent:
             if not carousel_id:
                 raise PublishError("Instagram did not return a carousel container id")
 
-            # 3. Publish the carousel.
+            # 3. Wait for the carousel container to be ready.
+            self._await_instagram_container(client, carousel_id, token, label="carousel")
+
+            # 4. Publish the carousel.
             publish = client.post(
                 f"{base}/media_publish",
                 data={"creation_id": carousel_id, "access_token": token},
@@ -229,6 +263,11 @@ class PublisherAgent:
     def _publish_facebook(self, post: Post) -> str:
         self._cfg.require("facebook_page_id", "instagram_access_token")
         if post.post_type == "carousel" and post.slides:
+            if len(post.slides) < 2:
+                raise PublishError(
+                    f"Facebook carousel requires at least 2 slides; this post only has "
+                    f"{len(post.slides)} — wait for the nightly image refresh to complete it"
+                )
             return self._publish_facebook_carousel(post)
 
         page_id = self._cfg.facebook_page_id

@@ -302,7 +302,9 @@ def run_image_refresh() -> None:
 
     Runs nightly at 02:00 — after the Imagen quota resets (midnight UTC) —
     to pick up any slides that were skipped due to rate limits during the day.
-    Only processes posts that are still scheduled (not yet published).
+    Processes both scheduled posts (missing image) and failed posts (missing
+    image only — failed posts that already have an image are left alone so
+    the user can retry them manually).
     """
     logger.info("=== Image refresh starting ===")
     try:
@@ -315,79 +317,100 @@ def run_image_refresh() -> None:
         sb = create_client(config.supabase_url, config.supabase_key)
         thumbnail_agent = _safe_init(ThumbnailAgent, "thumbnail")
         carousel_agent = _safe_init(CarouselAgent, "carousel")
+        scheduler_agent = SchedulerAgent()
 
         refreshed = 0
 
-        # Carousel slides — only carousels that are missing slides entirely
-        if carousel_agent:
-            carousels = (
+        def _carousel_rows(status: str) -> list:
+            return (
                 sb.table("posts")
                 .select("*")
                 .eq("post_type", "carousel")
-                .eq("status", "scheduled")
-                .eq("platform", "instagram")
+                .eq("status", status)
                 .is_("thumbnail_url", "null")
                 .execute()
                 .data
                 or []
             )
-            for c in carousels:
-                try:
-                    source = Post(
-                        pillar=c["pillar"],
-                        platform=c["platform"],
-                        topic=c.get("topic", ""),
-                        hashtags=list(c.get("hashtags") or []),
-                    )
-                    new_id = str(_uuid.uuid4())
-                    plan = carousel_agent._plan_carousel(source)
-                    slides = carousel_agent._generate_images(new_id, source, plan)
-                    sb.table("posts").update(
-                        {
-                            "title": plan.cover_headline,
-                            "slides": slides,
-                            "thumbnail_url": (
-                                slides[0]["image_url"] if slides else c.get("thumbnail_url")
-                            ),
-                        }
-                    ).eq("id", c["id"]).execute()
-                    refreshed += 1
-                    logger.info("Refreshed carousel %s (%d slides)", c["id"][:8], len(slides))
-                except Exception:
-                    logger.exception("Failed refreshing carousel %s", c.get("id", "?")[:8])
 
-        # Standard post thumbnails — only posts that are missing one
-        if thumbnail_agent:
-            std_posts = (
+        def _standard_rows(status: str) -> list:
+            return (
                 sb.table("posts")
                 .select("*")
                 .eq("post_type", "standard")
-                .eq("status", "scheduled")
+                .eq("status", status)
                 .is_("thumbnail_url", "null")
                 .execute()
                 .data
                 or []
             )
-            for p in std_posts:
-                try:
-                    post_obj = Post(
-                        id=p["id"],
-                        pillar=p["pillar"],
-                        platform=p["platform"],
-                        topic=p.get("topic", ""),
-                        title=p.get("title", ""),
-                    )
-                    thumbnail_agent.generate(post_obj)
-                    sb.table("posts").update({"thumbnail_url": post_obj.thumbnail_url}).eq(
-                        "id", p["id"]
-                    ).execute()
-                    refreshed += 1
-                    logger.info("Refreshed thumbnail for post %s", p["id"][:8])
-                except Exception:
-                    logger.exception(
-                        "Failed refreshing thumbnail for post %s",
-                        p.get("id", "?")[:8],
-                    )
+
+        # --- Carousels (scheduled + failed with no image) ---
+        if carousel_agent:
+            for status in ("scheduled", "failed"):
+                for c in _carousel_rows(status):
+                    try:
+                        source = Post(
+                            id=c["id"],
+                            pillar=c["pillar"],
+                            platform=c["platform"],
+                            topic=c.get("topic", ""),
+                            caption=c.get("caption", ""),
+                            hashtags=list(c.get("hashtags") or []),
+                        )
+                        new_id = str(_uuid.uuid4())
+                        plan = carousel_agent._plan_carousel(source)
+                        slides = carousel_agent._generate_images(new_id, source, plan)
+                        update: dict = {
+                            "title": plan.cover_headline,
+                            "slides": slides,
+                            "thumbnail_url": slides[0]["image_url"] if slides else None,
+                        }
+                        if status == "failed" and slides:
+                            # Reschedule so the publisher picks it up.
+                            scheduler_agent.schedule(source)
+                            update["status"] = "scheduled"
+                            update["scheduled_time"] = source.scheduled_time.isoformat()
+                            update["error"] = None
+                        sb.table("posts").update(update).eq("id", c["id"]).execute()
+                        refreshed += 1
+                        logger.info(
+                            "Refreshed %s carousel %s (%d slides)",
+                            status,
+                            c["id"][:8],
+                            len(slides),
+                        )
+                    except Exception:
+                        logger.exception("Failed refreshing carousel %s", c.get("id", "?")[:8])
+
+        # --- Standard posts (scheduled + failed with no image) ---
+        if thumbnail_agent:
+            for status in ("scheduled", "failed"):
+                for p in _standard_rows(status):
+                    try:
+                        post_obj = Post(
+                            id=p["id"],
+                            pillar=p["pillar"],
+                            platform=p["platform"],
+                            topic=p.get("topic", ""),
+                            title=p.get("title", ""),
+                            caption=p.get("caption", ""),
+                            hashtags=list(p.get("hashtags") or []),
+                        )
+                        thumbnail_agent.generate(post_obj)
+                        update = {"thumbnail_url": post_obj.thumbnail_url}
+                        if status == "failed" and post_obj.thumbnail_url:
+                            scheduler_agent.schedule(post_obj)
+                            update["status"] = "scheduled"
+                            update["scheduled_time"] = post_obj.scheduled_time.isoformat()
+                            update["error"] = None
+                        sb.table("posts").update(update).eq("id", p["id"]).execute()
+                        refreshed += 1
+                        logger.info("Refreshed %s thumbnail for post %s", status, p["id"][:8])
+                    except Exception:
+                        logger.exception(
+                            "Failed refreshing thumbnail for post %s", p.get("id", "?")[:8]
+                        )
 
         logger.info("=== Image refresh finished: %d asset(s) updated ===", refreshed)
     except Exception:

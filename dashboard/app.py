@@ -47,8 +47,33 @@ const style = document.createElement('style');
 style.textContent = css;
 window.parent.document.head.appendChild(style);
 
+// Apply expander styles directly as inline styles (bypasses Streamlit's emotion CSS)
+function styleExpanders() {
+  const doc = window.parent.document;
+  doc.querySelectorAll('[data-testid="stExpander"] details').forEach(function(details) {
+    details.style.setProperty('border', '1px solid #E8E8ED', 'important');
+    details.style.setProperty('border-radius', '12px', 'important');
+    details.style.setProperty('overflow', 'hidden', 'important');
+    details.style.setProperty('background', '#ffffff', 'important');
+    details.style.setProperty('margin-bottom', '8px', 'important');
+  });
+  doc.querySelectorAll('[data-testid="stExpander"] summary').forEach(function(summary) {
+    summary.style.setProperty('padding', '10px 14px', 'important');
+    summary.style.setProperty('background', '#F5F5F7', 'important');
+    summary.style.setProperty('background-color', '#F5F5F7', 'important');
+    summary.style.setProperty('font-size', '13px', 'important');
+    summary.style.setProperty('font-weight', '600', 'important');
+    summary.style.setProperty('color', '#1D1D1F', 'important');
+    summary.style.setProperty('cursor', 'pointer', 'important');
+  });
+}
+
+// Run on load and on every DOM change (Streamlit re-renders frequently)
+styleExpanders();
+const observer = new MutationObserver(styleExpanders);
+observer.observe(window.parent.document.body, { childList: true, subtree: true });
+
 // Align "TECH LIFESTYLE" to exactly match the width of "Brite"
-// Must measure as inline to get true text width (display:block returns container width)
 function alignBriteSub() {
   const brite = window.parent.document.querySelector('.btl-brite');
   const sub   = window.parent.document.querySelector('.btl-sub');
@@ -246,12 +271,12 @@ st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 PLATFORM_COLORS = {
-    "instagram": "#E1306C",
-    "facebook": "#1877F2",
-    "twitter": "#1DA1F2",
-    "linkedin": "#0A66C2",
-    "tiktok": "#010101",
-    "youtube": "#FF0000",
+    "instagram": "#C2185B",  # deep pink
+    "facebook": "#1565C0",  # deep blue
+    "twitter": "#00897B",  # teal
+    "linkedin": "#E65100",  # burnt orange
+    "tiktok": "#43A047",  # medium green (bright enough to read at small sizes)
+    "youtube": "#B71C1C",  # dark red
 }
 
 
@@ -549,7 +574,7 @@ with tab_calendar:
             for p in day_posts[:8]:
                 plat = (p.get("platform") or "").lower()
                 col = PLATFORM_COLORS.get(plat, "#A1A1A6")
-                dots += f'<div style="width:8px;height:8px;border-radius:50%;background:{col};flex-shrink:0" title="{p.get("topic", "")}"></div>'
+                dots += f'<div style="width:11px;height:11px;border-radius:50%;background:{col};flex-shrink:0;border:2px solid rgba(0,0,0,0.15)" title="{p.get("topic", "")}"></div>'
             count_html = (
                 f'<div style="font-size:10px;font-weight:700;color:#0066CC;margin-top:3px">{len(day_posts)} post{"s" if len(day_posts) != 1 else ""}</div>'
                 if day_posts
@@ -576,7 +601,7 @@ with tab_calendar:
     # Legend
     legend = " &nbsp;&nbsp; ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#6E6E73">'
-        f'<span style="width:9px;height:9px;border-radius:50%;background:{c};display:inline-block"></span>{p.title()}</span>'
+        f'<span style="width:12px;height:12px;border-radius:50%;background:{c};display:inline-block;border:2px solid rgba(0,0,0,0.15)"></span>{p.title()}</span>'
         for p, c in PLATFORM_COLORS.items()
     )
     st.markdown(f"<div style='margin-top:12px'>{legend}</div>", unsafe_allow_html=True)
