@@ -137,7 +137,7 @@ class QualityAgent:
     ) -> None:
         """Core vision check — shared by URL and bytes paths."""
         resp = self._client.messages.create(
-            model=self._cfg.model_creative,
+            model=self._cfg.model_fast,
             max_tokens=128,
             system=self._IMAGE_SYSTEM,
             messages=[
