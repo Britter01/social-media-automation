@@ -156,7 +156,13 @@ class ResearchAgent:
 
         Raises on hard API failures so the caller can decide what to do.
         """
-        categories = categories or self._cfg.research_categories
+        raw = categories or self._cfg.research_categories
+        # Whitelist-validate against the configured set to prevent prompt injection
+        # if categories are ever sourced from user input or an external API.
+        valid_set = {c.lower() for c in self._cfg.research_categories}
+        categories = [c for c in raw if c.lower() in valid_set] or list(
+            self._cfg.research_categories
+        )
         findings = self._search_trends(categories)
         if not findings.strip():
             logger.warning("Web search returned no findings; no topics produced")
