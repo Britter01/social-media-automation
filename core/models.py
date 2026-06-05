@@ -105,6 +105,14 @@ class Post:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
+    def __post_init__(self) -> None:
+        self.caption = self.caption[:5000]
+        self.title = self.title[:300]
+        self.topic = self.topic[:500]
+        self.hashtags = self.hashtags[:50]
+        if self.error:
+            self.error = self.error[:1000]
+
     # --- Convenience -----------------------------------------------------
 
     @property
@@ -194,6 +202,13 @@ class Topic:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        self.title = self.title[:500]
+        self.summary = self.summary[:2000]
+        self.content_angle = self.content_angle[:2000]
+        self.rationale = self.rationale[:500]
+        self.sources = self.sources[:20]
 
     # --- Convenience -----------------------------------------------------
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import calendar
+import hmac
+import html
 import os
+import time
 from collections import defaultdict
 from datetime import UTC, date, datetime
 
@@ -103,6 +106,10 @@ window.parent.addEventListener('resize', alignBriteSub);
 # ── Authentication ────────────────────────────────────────────────────────────
 
 
+_AUTH_MAX_ATTEMPTS = 5
+_AUTH_LOCKOUT_SECS = 900  # 15 minutes
+
+
 def _check_password() -> bool:
     try:
         expected = st.secrets.get("DASHBOARD_PASSWORD") or os.getenv("DASHBOARD_PASSWORD", "")
@@ -115,6 +122,15 @@ def _check_password() -> bool:
 
     if st.session_state.get("authenticated"):
         return True
+
+    # Rate limiting: track failed attempts within the lockout window.
+    now = datetime.now(UTC).timestamp()
+    attempts: list[float] = [
+        t for t in st.session_state.get("_auth_attempts", []) if now - t < _AUTH_LOCKOUT_SECS
+    ]
+    if len(attempts) >= _AUTH_MAX_ATTEMPTS:
+        st.error("Too many failed attempts. Please wait 15 minutes and try again.")
+        return False
 
     st.markdown("<br>" * 3, unsafe_allow_html=True)
     col = st.columns([1, 1, 1])[1]
@@ -133,10 +149,15 @@ def _check_password() -> bool:
             "Password", type="password", placeholder="Enter password", label_visibility="collapsed"
         )
         if st.button("Sign In", use_container_width=True, type="primary"):
-            if pwd == expected:
+            # Constant-time comparison to prevent timing attacks.
+            if hmac.compare_digest(pwd, expected):
                 st.session_state["authenticated"] = True
+                st.session_state["_auth_attempts"] = []
                 st.rerun()
             else:
+                attempts.append(now)
+                st.session_state["_auth_attempts"] = attempts
+                time.sleep(1)  # slow brute-force without a hard lockout
                 st.error("Incorrect password.")
     return False
 
@@ -271,8 +292,19 @@ st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 # ── Manual controls ───────────────────────────────────────────────────────────
 
 
-def _queue_command(command: str) -> None:
-    """Insert a pipeline command for the worker to pick up within ~2 minutes."""
+_CMD_COOLDOWN_SECS = 10
+
+
+def _queue_command(command: str, cooldown_key: str | None = None) -> None:
+    """Insert a pipeline command for the worker to pick up within ~2 minutes.
+
+    Enforces a per-key cooldown to prevent accidental or malicious cost spikes
+    from rapid repeated button clicks.
+    """
+    key = f"_cmd_ts_{cooldown_key or command}"
+    now = datetime.now(UTC).timestamp()
+    if now - st.session_state.get(key, 0.0) < _CMD_COOLDOWN_SECS:
+        raise RuntimeError("Too many requests — please wait a moment before trying again.")
     db.table("pipeline_commands").insert(
         {
             "command": command,
@@ -280,6 +312,7 @@ def _queue_command(command: str) -> None:
             "requested_at": datetime.now(UTC).isoformat(),
         }
     ).execute()
+    st.session_state[key] = now
 
 
 with st.expander("⚡ Manual controls — run pipeline jobs now"):
@@ -330,7 +363,7 @@ def _platform_pill(platform: str) -> str:
     return (
         f"<span style='background:{color}18;color:{color};border-radius:9999px;"
         f"padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:0.04em;"
-        f"text-transform:uppercase'>{platform}</span>"
+        f"text-transform:uppercase'>{html.escape(platform)}</span>"
     )
 
 
@@ -355,6 +388,12 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     sched_color = "#10B981" if time_label == "scheduled" else "#059669"
     sched_icon = "📅" if time_label == "scheduled" else "📢"
 
+    # Escape all DB-sourced values before HTML interpolation (XSS prevention).
+    e_platform = html.escape(str(platform))
+    e_title = html.escape(str(title))
+    e_pillar = html.escape(str(pillar))
+    e_caption = html.escape(str(caption))
+
     # Image
     url = post.get("thumbnail_url", "")
     if url:
@@ -370,18 +409,22 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     # Info block — all inline styles, immune to Streamlit theming
     pills = ""
     if platform:
-        pills += f"<span style='background:{plat_color}18;color:{plat_color};border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase'>{platform}</span> "
+        pills += (
+            f"<span style='background:{plat_color}18;color:{plat_color};border-radius:9999px;"
+            f"padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:.04em;"
+            f"text-transform:uppercase'>{e_platform}</span> "
+        )
     if is_carousel:
         pills += f"<span style='color:#7C3AED;font-size:11px;font-weight:700'>🎠 {len(slides)} slides</span> "
     if time_str:
-        pills += f"<span style='color:{sched_color};font-size:11px;font-weight:600'>{sched_icon} {time_str}</span>"
+        pills += f"<span style='color:{sched_color};font-size:11px;font-weight:600'>{sched_icon} {html.escape(time_str)}</span>"
 
     st.markdown(
         f"""
     <div style='font-family:sans-serif;padding:6px 2px 4px'>
       <div style='margin-bottom:5px'>{pills}</div>
-      <div style='font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.35;margin-bottom:3px'>{title}</div>
-      <div style='font-size:12px;color:#6E6E73'>{pillar}</div>
+      <div style='font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.35;margin-bottom:3px'>{e_title}</div>
+      <div style='font-size:12px;color:#6E6E73'>{e_pillar}</div>
     </div>
     """,
         unsafe_allow_html=True,
@@ -393,12 +436,14 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
             for j, slide in enumerate(slides):
                 role = slide.get("role", "")
                 tag = " (cover)" if role == "cover" else " (CTA)" if role == "cta" else ""
+                e_headline = html.escape(str(slide.get("headline", "")))
+                e_body = html.escape(str(slide.get("body", "")))
                 st.markdown(
-                    f"<div style='font-weight:700;color:#1D1D1F;font-size:13px'>{j + 1}. {slide.get('headline', '')}{tag}</div>",
+                    f"<div style='font-weight:700;color:#1D1D1F;font-size:13px'>{j + 1}. {e_headline}{tag}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<div style='font-size:12px;color:#6E6E73;margin-bottom:6px'>{slide.get('body', '')}</div>",
+                    f"<div style='font-size:12px;color:#6E6E73;margin-bottom:6px'>{e_body}</div>",
                     unsafe_allow_html=True,
                 )
                 img = slide.get("image_url", "")
@@ -409,7 +454,9 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
                 st.divider()
     elif caption:
         tags_html = (
-            f"<div style='font-size:11px;color:#0066CC;margin-top:8px;line-height:1.8'>{' '.join(f'#{h}' for h in hashtags)}</div>"
+            "<div style='font-size:11px;color:#0066CC;margin-top:8px;line-height:1.8'>"
+            + " ".join(f"#{html.escape(str(h))}" for h in hashtags)
+            + "</div>"
             if hashtags
             else ""
         )
@@ -422,7 +469,7 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
             Caption &nbsp;›
           </summary>
           <div style="padding:12px 14px;font-size:13px;color:#1D1D1F;line-height:1.7;background:#fff">
-            {caption}{tags_html}
+            {e_caption}{tags_html}
           </div>
         </details>
         """,
@@ -455,8 +502,9 @@ with tab_topics:
                 with c1:
                     score = topic.get("relevance_score", 0)
                     sc = "#10B981" if score >= 80 else "#F59E0B" if score >= 60 else "#EF4444"
+                    e_topic_title = html.escape(str(topic.get("title", "")))
                     st.markdown(
-                        f"**{topic['title']}** &nbsp;"
+                        f"**{e_topic_title}** &nbsp;"
                         f"<span style='background:{sc}18;color:{sc};border-radius:9999px;"
                         f"padding:2px 10px;font-size:11px;font-weight:700'>Score {score}</span>"
                         f" &nbsp; {_platform_pill(topic.get('platform', ''))}",
@@ -538,11 +586,16 @@ with tab_scheduled:
                                 db.table("posts").update(
                                     {"scheduled_time": datetime.now(UTC).isoformat()}
                                 ).eq("id", pid).execute()
-                                _queue_command("publish")
-                                st.success("Queued — will publish within 2 minutes.")
+                                try:
+                                    _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    st.success("Queued — will publish within 2 minutes.")
+                                except RuntimeError as e:
+                                    st.warning(str(e))
                         with btn_dis:
                             if pid and st.button(
-                                "🗑 Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
+                                "🗑 Dismiss",
+                                key=f"dismiss_sched_{pid}",
+                                use_container_width=True,
                             ):
                                 db.table("posts").update({"status": "dismissed"}).eq(
                                     "id", pid
@@ -571,11 +624,16 @@ with tab_scheduled:
                                 db.table("posts").update(
                                     {"scheduled_time": datetime.now(UTC).isoformat()}
                                 ).eq("id", pid).execute()
-                                _queue_command("publish")
-                                st.success("Queued — will publish within 2 minutes.")
+                                try:
+                                    _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    st.success("Queued — will publish within 2 minutes.")
+                                except RuntimeError as e:
+                                    st.warning(str(e))
                         with btn_dis:
                             if pid and st.button(
-                                "🗑 Dismiss", key=f"dismiss_car_{pid}", use_container_width=True
+                                "🗑 Dismiss",
+                                key=f"dismiss_car_{pid}",
+                                use_container_width=True,
                             ):
                                 db.table("posts").update({"status": "dismissed"}).eq(
                                     "id", pid
