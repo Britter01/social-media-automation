@@ -151,7 +151,7 @@ class PublisherAgent:
         """
         for attempt in range(10):
             resp = client.get(
-                f"https://graph.facebook.com/v19.0/{container_id}",
+                f"https://graph.facebook.com/v22.0/{container_id}",
                 params={"fields": "status_code,status", "access_token": token},
             )
             resp.raise_for_status()
@@ -180,7 +180,7 @@ class PublisherAgent:
 
         account = self._cfg.instagram_business_account_id
         token = self._cfg.instagram_access_token
-        base = f"https://graph.facebook.com/v19.0/{account}"
+        base = f"https://graph.facebook.com/v22.0/{account}"
 
         with httpx.Client(timeout=60.0) as client:
             # 1. Create a media container.
@@ -212,7 +212,7 @@ class PublisherAgent:
         """Publish a carousel post via the Instagram Graph API (3-step flow)."""
         account = self._cfg.instagram_business_account_id
         token = self._cfg.instagram_access_token
-        base = f"https://graph.facebook.com/v19.0/{account}"
+        base = f"https://graph.facebook.com/v22.0/{account}"
 
         with httpx.Client(timeout=120.0) as client:
             # 1. Create an item container for each slide.
@@ -284,7 +284,7 @@ class PublisherAgent:
 
         page_id = self._cfg.facebook_page_id
         token = self._cfg.instagram_access_token
-        base = f"https://graph.facebook.com/v19.0/{page_id}"
+        base = f"https://graph.facebook.com/v22.0/{page_id}"
 
         with httpx.Client(timeout=60.0) as client:
             if post.thumbnail_url:
@@ -314,7 +314,7 @@ class PublisherAgent:
 
         page_id = self._cfg.facebook_page_id
         token = self._cfg.instagram_access_token
-        base = f"https://graph.facebook.com/v19.0/{page_id}"
+        base = f"https://graph.facebook.com/v22.0/{page_id}"
 
         with httpx.Client(timeout=120.0) as client:
             # 1. Upload each slide as an unpublished photo.
