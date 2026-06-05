@@ -24,10 +24,6 @@ import sys
 from datetime import UTC, datetime
 from itertools import cycle
 
-from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-
 from agents.carousel_agent import CarouselAgent
 from agents.content_agent import ContentAgent
 from agents.publisher_agent import PublisherAgent
@@ -516,8 +512,12 @@ def _safe_init(agent_cls, label: str):
         return None
 
 
-def build_scheduler() -> BlockingScheduler:
+def build_scheduler():
     """Wire up the recurring jobs."""
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+
     scheduler = BlockingScheduler(timezone=config.timezone)
 
     # Research trending topics and schedule content from them at 05:30 local,
