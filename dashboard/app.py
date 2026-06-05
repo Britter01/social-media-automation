@@ -494,6 +494,13 @@ with tab_posts:
             with cols[i % 3]:
                 with st.container(border=True):
                     _post_card(post)
+                    pid = post.get("id", "")
+                    if pid and st.button(
+                        "🗑 Dismiss", key=f"dismiss_prog_{pid}", use_container_width=True
+                    ):
+                        db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
+                        st.cache_data.clear()
+                        st.rerun()
 
 # ── Scheduled ─────────────────────────────────────────────────────────────────
 
@@ -519,6 +526,15 @@ with tab_scheduled:
                 with cols[i % 3]:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
+                        pid = p.get("id", "")
+                        if pid and st.button(
+                            "🗑 Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
+                            st.cache_data.clear()
+                            st.rerun()
         if car:
             st.markdown(
                 "<div style='font-size:16px;font-weight:700;color:#7C3AED;padding:16px 0 4px'>🎠 Carousels</div>",
@@ -529,6 +545,15 @@ with tab_scheduled:
                 with cols[i % 3]:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
+                        pid = p.get("id", "")
+                        if pid and st.button(
+                            "🗑 Dismiss", key=f"dismiss_car_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
+                            st.cache_data.clear()
+                            st.rerun()
 
 # ── Calendar ──────────────────────────────────────────────────────────────────
 
