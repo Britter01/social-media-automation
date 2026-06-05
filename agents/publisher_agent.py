@@ -125,8 +125,18 @@ class PublisherAgent:
         try:
             post_id = handler(post)
         except (httpx.HTTPError, PublishError) as exc:
-            raw = str(exc)[:500]
-            detail = _SENSITIVE_PATTERN.sub(r"\1=[REDACTED]", raw)[:200]
+            # Include the actual API response body so the error shown in the
+            # dashboard contains the platform's own error code/message.
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                try:
+                    body = exc.response.json()
+                    api_err = body.get("error") or body
+                    raw = f"{exc} | api_error: {api_err}"[:600]
+                except Exception:
+                    raw = f"{exc} | {exc.response.text[:300]}"[:600]
+            else:
+                raw = str(exc)[:500]
+            detail = _SENSITIVE_PATTERN.sub(r"\1=[REDACTED]", raw)[:400]
             logger.exception("Publish failed for post %s on %s", post.id, post.platform)
             post.mark(PostStatus.FAILED, error=f"publish failed on {post.platform}: {detail}")
             raise
