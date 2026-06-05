@@ -268,6 +268,49 @@ for i, (label, count, color) in enumerate(STAGES):
 
 st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 
+# ── Manual controls ───────────────────────────────────────────────────────────
+
+with st.expander("⚡ Manual controls — run pipeline jobs now"):
+    st.caption("Use these to trigger jobs immediately without waiting for the scheduler.")
+    ctrl_c1, ctrl_c2, ctrl_c3 = st.columns(3)
+
+    with ctrl_c1:
+        if st.button("🖼 Generate missing images", use_container_width=True):
+            with st.spinner("Generating images… this may take a minute"):
+                try:
+                    from scheduler.cron import run_image_refresh
+
+                    run_image_refresh()
+                    st.success("Image refresh complete — reload the page to see updated posts.")
+                    st.cache_data.clear()
+                except Exception as exc:
+                    st.error(f"Image refresh failed: {exc}")
+
+    with ctrl_c2:
+        if st.button("📤 Publish due posts", use_container_width=True):
+            with st.spinner("Publishing…"):
+                try:
+                    from scheduler.cron import run_publisher
+
+                    run_publisher()
+                    st.success("Publisher run complete — reload to see results.")
+                    st.cache_data.clear()
+                except Exception as exc:
+                    st.error(f"Publisher failed: {exc}")
+
+    with ctrl_c3:
+        if st.button("⚡ Run everything now", use_container_width=True, type="primary"):
+            with st.spinner("Running image refresh then publishing…"):
+                try:
+                    from scheduler.cron import run_image_refresh, run_publisher
+
+                    run_image_refresh()
+                    run_publisher()
+                    st.success("Done — reload the page to see the latest state.")
+                    st.cache_data.clear()
+                except Exception as exc:
+                    st.error(f"Pipeline run failed: {exc}")
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 PLATFORM_COLORS = {
