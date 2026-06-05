@@ -269,8 +269,16 @@ def _generate_media(post: Post, thumbnail_agent, video_agent, quality_agent=None
             final_bytes = thumbnail_agent.apply_overlay(raw_bytes)
 
             if quality_agent is not None:
-                # Raises QualityError if bad — caller marks the post failed.
-                quality_agent.check_image_bytes(post, final_bytes)
+                try:
+                    quality_agent.check_image_bytes(post, final_bytes)
+                except Exception as _qc_exc:
+                    # Free retry: re-apply overlay (no new Imagen call).
+                    from agents.quality_agent import QualityError
+
+                    if not isinstance(_qc_exc, QualityError):
+                        raise
+                    final_bytes = thumbnail_agent.apply_overlay(raw_bytes)
+                    quality_agent.check_image_bytes(post, final_bytes)
 
             try:
                 thumbnail_agent.upload(post, final_bytes)
