@@ -495,7 +495,9 @@ with tab_posts:
                 with st.container(border=True):
                     _post_card(post)
                     pid = post.get("id", "")
-                    if pid and st.button("🗑 Dismiss", key=f"dismiss_prog_{pid}", use_container_width=True):
+                    if pid and st.button(
+                        "🗑 Dismiss", key=f"dismiss_prog_{pid}", use_container_width=True
+                    ):
                         db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
                         st.cache_data.clear()
                         st.rerun()
@@ -525,8 +527,12 @@ with tab_scheduled:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
                         pid = p.get("id", "")
-                        if pid and st.button("🗑 Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True):
-                            db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
+                        if pid and st.button(
+                            "🗑 Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
                             st.cache_data.clear()
                             st.rerun()
         if car:
@@ -540,8 +546,12 @@ with tab_scheduled:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
                         pid = p.get("id", "")
-                        if pid and st.button("🗑 Dismiss", key=f"dismiss_car_{pid}", use_container_width=True):
-                            db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
+                        if pid and st.button(
+                            "🗑 Dismiss", key=f"dismiss_car_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
                             st.cache_data.clear()
                             st.rerun()
 
