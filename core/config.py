@@ -72,9 +72,9 @@ class Config:
     model_creative: str = "claude-sonnet-4-6"
     model_fast: str = "claude-haiku-4-5"
 
-    # --- Google Imagen 4 Fast (thumbnails) ------------------------------
+    # --- Google Imagen 4 Standard (thumbnails) --------------------------
     google_api_key: str | None = None
-    imagen_model: str = "imagen-4.0-fast-generate-001"
+    imagen_model: str = "imagen-4.0-generate-001"
 
     # --- HeyGen (video) -------------------------------------------------
     heygen_api_key: str | None = None
@@ -176,7 +176,7 @@ class Config:
             model_creative=_get("ANTHROPIC_MODEL_CREATIVE", "claude-sonnet-4-6"),
             model_fast=_get("ANTHROPIC_MODEL_FAST", "claude-haiku-4-5"),
             google_api_key=_get("GOOGLE_API_KEY"),
-            imagen_model=_get("IMAGEN_MODEL", "imagen-4.0-fast-generate-001"),
+            imagen_model=_get("IMAGEN_MODEL", "imagen-4.0-generate-001"),
             heygen_api_key=_get("HEYGEN_API_KEY"),
             heygen_voice_id=_get("HEYGEN_VOICE_ID"),
             heygen_avatar_id=_get("HEYGEN_AVATAR_ID"),
