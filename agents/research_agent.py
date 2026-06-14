@@ -550,33 +550,54 @@ class ResearchAgent:
         return fallback
 
     def _search_competitor_patterns(self, competitor_urls: list[str], target_count: int) -> str:
-        """Elite-strategist web search: viral patterns in the niche + competitor intel."""
-        url_block = ""
+        """Elite-strategist web search: viral patterns in the niche + competitor intel.
+
+        The five cross-cutting patterns proven to drive growth in this space are
+        embedded directly as output requirements so every idea inherits them:
+          1. One-line repeatable promise — what the post will deliver, in one sentence
+          2. "Use it now" takeaway — practical action, not just news
+          3. Core asset repurposable across carousel → newsletter → short-form video
+          4. Founder-visible angle — honest, disclosed, trust-building framing
+          5. Consistent tone — warm, clear, confident; the brand voice is the moat
+        """
         safe_urls = [u for u in competitor_urls if _is_safe_url(u)][:5]
+        url_block = ""
         if safe_urls:
             url_block = (
-                "\n\nAlso visit these accounts and note their highest-performing recent "
-                "posts, what hook structures drive engagement, and angles worth adapting "
-                "(study patterns only — do not copy specific content):\n"
+                "\n\nVisit these reference accounts and study what's performed best recently "
+                "— look for hook structures, format types (carousel, reel, talking-head, "
+                "tutorial), and the exact 'use it now' angle that drives saves and shares. "
+                "Study patterns only; do not copy specific content:\n"
                 + "\n".join(f"- {u}" for u in safe_urls)
             )
 
         themes = ", ".join(self._cfg.research_categories)
         user_prompt = (
-            "You are an elite social media strategist with 10+ years studying viral "
-            "content patterns across Instagram, LinkedIn, YouTube, and X.\n\n"
-            f"Search the web to find what is working RIGHT NOW in: {themes}.\n\n"
-            "For each theme find:\n"
-            "• The highest-engagement posts from the last 2 weeks — what made them take off?\n"
-            "• Emerging topics with rising traction that aren't yet saturated\n"
-            "• Proven hook structures (list-based, contrast, counterintuitive claim, 'how to')\n"
-            "• Content angles that earn saves and shares, not just likes\n"
-            "• The emotional triggers: curiosity, aspiration, fear-of-missing-out, surprise\n"
+            "You are an elite social media strategist. Your task is to find what is "
+            f"working RIGHT NOW in these niches: {themes}.\n\n"
+            "Search the web for:\n"
+            "• The highest-engagement posts from the last 2 weeks — what made them "
+            "break through? Look for specific headlines, format types, and hook structures.\n"
+            "• Emerging topics with clear rising traction that aren't yet saturated\n"
+            "• Hook patterns that earn saves and shares, not just likes: list-based, "
+            "contrast ('X vs Y'), counterintuitive claim, how-to step-by-step, "
+            "before/after transformation, 'I tried X so you don't have to'\n"
+            "• The emotional driver: curiosity gap, aspiration, fear-of-missing-out, "
+            "surprise, or recognition ('that's exactly my problem')\n"
             f"{url_block}\n\n"
-            f"Extract at least {target_count} specific, original post ideas shaped by these "
-            "patterns — tailored to a tech lifestyle brand with a warm, confident voice. "
-            "For each idea: what it's about, which viral pattern it applies, the hook "
-            "structure, and why it will work. Include source URLs."
+            f"Extract exactly {target_count} specific, original post ideas. "
+            "For each idea, include ALL of the following — these are non-negotiable:\n\n"
+            "  ONE-LINE PROMISE: what the audience will walk away with (e.g. "
+            "'You'll know the 3 AI tools saving 5 hours a week for knowledge workers')\n"
+            "  USE IT NOW TAKEAWAY: the immediate, practical action — not just news, "
+            "not just inspiration. What can they do or try within the next 10 minutes?\n"
+            "  HOOK / HEADLINE: the exact opening line or carousel cover headline\n"
+            "  REPURPOSE PATH: how this one idea maps to carousel → reel/short → newsletter\n"
+            "  EMOTIONAL TRIGGER: which emotion drives the share/save, and why\n"
+            "  VIRAL PATTERN: which proven structure it uses (name the pattern)\n"
+            "  SOURCE URLs: where you found the evidence that this topic has traction\n\n"
+            "Be specific. Vague ideas ('AI is changing everything') are worthless. "
+            "Great ideas name the tool, the use case, the person, or the number."
         )
 
         base_user = {"role": "user", "content": user_prompt}
