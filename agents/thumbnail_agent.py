@@ -33,26 +33,53 @@ _ASPECT_RATIO = {
     "tiktok": "9:16",
 }
 
+# Pillar → purely visual scene description. No text, no topic echoing.
+_PILLAR_SCENE = {
+    "AI Guide": (
+        "a sleek laptop on a minimal desk, soft blue ambient glow from the screen, "
+        "abstract luminous particles suggesting data flow, clean dark background"
+    ),
+    "Tech Lifestyle": (
+        "a modern living space with premium gadgets, warm window light, "
+        "lush indoor plants alongside devices, cozy yet sophisticated atmosphere"
+    ),
+    "Productivity": (
+        "a clean organised desk with a single open laptop, a glass of water, "
+        "morning light streaming in, calm focused minimalist atmosphere"
+    ),
+    "Fitness Tech": (
+        "an athlete's wrist with a sleek smart wearable, dynamic outdoor light, "
+        "motion and energy conveyed through shallow depth of field"
+    ),
+    "Review": (
+        "a single consumer electronics device on a clean matte surface, "
+        "dramatic side-lit studio lighting, premium product photography aesthetic"
+    ),
+}
+
+_DEFAULT_SCENE = (
+    "premium technology in a beautifully lit modern environment, "
+    "minimal composition, soft natural light"
+)
+
 
 def _build_prompt(post: Post, brand_name: str) -> str:
-    """Turn a post into a clean, on-brand image prompt."""
-    # Use topic/title as a visual concept, but truncate at a word boundary to
-    # avoid Imagen echoing a long verbatim title back as in-image text.
-    raw = post.topic or post.title or post.pillar
-    if len(raw) > 72:
-        truncated = raw[:72].rsplit(" ", 1)[0]
-    else:
-        truncated = raw
+    """Build a purely visual Imagen prompt — no post title or topic text included.
+
+    Feeding the post headline into the prompt caused Imagen to render it as
+    literal on-image text. This version drives the scene from the content pillar
+    only, giving Imagen only visual/spatial language to work with.
+    """
+    scene = _PILLAR_SCENE.get(post.pillar, _DEFAULT_SCENE)
     return (
-        f"Editorial lifestyle photograph. Visual theme: {post.pillar}. "
-        f"Concept: {truncated}. "
-        "Clean minimal composition, soft natural light, modern technology in a beautifully "
-        "lived-in space, warm and confident mood, high detail. "
-        "CRITICAL — absolutely no text anywhere: no letters, words, numbers, titles, "
-        "captions, labels, signs, watermarks, logos, or any readable characters — "
-        "not even partially visible or blurred. "
-        "Do NOT render any words from this prompt as visible text in the image. "
-        "Device screens must show only abstract blurred patterns, never text or UI."
+        f"Editorial lifestyle photograph: {scene}. "
+        "High detail, professional photography, warm and confident mood. "
+        "ABSOLUTE RULE — zero text of any kind in the image: no letters, words, "
+        "numbers, titles, captions, labels, signs, watermarks, brand names, or any "
+        "readable characters — not even partially visible, reflected, or blurred. "
+        "Every device screen shows only abstract bokeh or ambient glow, "
+        "never UI, apps, icons, or anything legible. "
+        "Do not depict any written language anywhere."
     )
 
 
