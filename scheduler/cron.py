@@ -583,6 +583,10 @@ def run_pending_commands() -> None:
                 run_publisher()
             elif command == "content":
                 run_content_pipeline()
+            elif command == "research":
+                run_research_pipeline()
+            elif command == "weekly_strategy":
+                run_weekly_strategy()
             else:
                 error = f"Unknown command: {command}"
                 logger.warning("Command queue: %s", error)
