@@ -555,6 +555,9 @@ class PublisherAgent:
                     json=payload,
                 )
                 if resp.is_success:
+                    # Log the author URN that worked so the real member id can
+                    # be copied into LINKEDIN_AUTHOR_URN for consistency.
+                    logger.info("LinkedIn published as author %s", author)
                     return resp.headers.get("x-restli-id") or resp.json().get("id", "")
                 last_resp = resp
                 # Only worth trying the next prefix when LinkedIn specifically

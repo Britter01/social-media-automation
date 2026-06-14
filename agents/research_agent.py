@@ -283,9 +283,7 @@ class ResearchAgent:
             # Safety net: never generate content for a paused platform, even if
             # an old topic for it slipped through approval before it was paused.
             if topic.platform in disabled:
-                logger.info(
-                    "Skipping topic %s — platform %r is disabled", topic.id, topic.platform
-                )
+                logger.info("Skipping topic %s — platform %r is disabled", topic.id, topic.platform)
                 topic.mark(TopicStatus.REJECTED)
                 if persist and self._db is not None:
                     try:

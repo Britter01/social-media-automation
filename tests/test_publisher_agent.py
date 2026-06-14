@@ -170,8 +170,7 @@ def test_linkedin_attaches_image(base_config, monkeypatch):
                         "value": {
                             "asset": "urn:li:digitalmediaAsset:XYZ",
                             "uploadMechanism": {
-                                "com.linkedin.digitalmedia.uploading."
-                                "MediaUploadHttpRequest": {
+                                "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest": {
                                     "uploadUrl": "https://upload.example/abc"
                                 }
                             },
@@ -179,9 +178,7 @@ def test_linkedin_attaches_image(base_config, monkeypatch):
                     }
                 )
             # The ugcPosts call itself.
-            state["share"] = kwargs["json"]["specificContent"][
-                "com.linkedin.ugc.ShareContent"
-            ]
+            state["share"] = kwargs["json"]["specificContent"]["com.linkedin.ugc.ShareContent"]
             return _FakeResponse({}, headers={"x-restli-id": "urn:li:share:42"})
 
     monkeypatch.setattr(httpx, "Client", _LinkedInClient)
