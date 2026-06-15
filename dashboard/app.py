@@ -156,7 +156,7 @@ components.html(
       font-weight:700 !important; letter-spacing:-0.02em !important;
     }
     #MainMenu, footer { visibility: hidden; }
-    .block-container { padding-top: 2rem !important; max-width: 1420px !important; }
+    .block-container { padding-top: 3.5rem !important; max-width: 1420px !important; }
 
     h1, h2, h3 {
       font-family:'Figtree',sans-serif !important;
@@ -166,22 +166,24 @@ components.html(
 
     /* ── Hide Streamlit's deploy / manage-app toolbar (all known selectors) ── */
     [data-testid="stToolbar"],
-    [data-testid="stBottom"],
     [data-testid="stStatusWidget"],
-    [data-testid="stDecoration"],
     [data-testid="stToolbarActions"],
+    [data-testid="manage-app-button"],
     .stDeployButton,
+    .viewerBadge_container__1QSob,
+    .viewerBadge_link__qRIco,
     #stDecoration,
     footer,
     footer * { display: none !important; }
 
-    /* ── Mobile: keep status bar horizontal and make buttons full-width ── */
+    /* ── Mobile tweaks (do NOT touch column wrapping — Streamlit needs it
+          to stack columns vertically on small screens) ── */
     @media (max-width: 768px) {
-      .block-container { padding: 1rem 0.75rem !important; }
-      /* status bar: force horizontal scroll rather than stacking */
-      [data-testid="stHorizontalBlock"] { overflow-x: auto !important; flex-wrap: nowrap !important; }
-      /* post action buttons: stack vertically and stay full width */
-      [data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"] { min-width: 0 !important; }
+      .block-container {
+        padding-top: 3rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+      }
       .stButton > button { min-height: 44px !important; font-size: 14px !important; }
     }
 
@@ -434,42 +436,31 @@ def _queue_command(command: str, cooldown_key: str | None = None) -> None:
     st.session_state[key] = now
 
 
-with st.sidebar:
-    st.markdown(
-        f"""
-<div style="padding:12px 0 22px">
-  {_logo_html(150)}
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+# Command buttons shown in both the sidebar (desktop) and the main-body
+# controls panel (reliable on mobile, where the sidebar is hidden behind a chevron).
+_cmds = [
+    (
+        "Daily Research",
+        "research",
+        "Scans the web for trending topics and adds them to your approval queue.",
+    ),
+    (
+        "Competitor Analysis",
+        "weekly_strategy",
+        "Runs the Monday competitor-pattern study right now — no need to wait. "
+        "Queues 7 shaped content ideas for your approval.",
+    ),
+    ("Generate Posts", "content", "Creates posts from topics you have already approved."),
+    ("Refresh Images", "image_refresh", "Regenerates any missing or failed thumbnails."),
+    ("Publish Due Posts", "publish", "Sends any scheduled post whose time has passed."),
+]
 
-    st.markdown(
-        "<div style='font-family:Figtree,sans-serif;font-size:11px;font-weight:600;"
-        f"letter-spacing:0.18em;text-transform:uppercase;color:{ACCENT};margin-bottom:8px'>"
-        "Pipeline Controls</div>",
-        unsafe_allow_html=True,
-    )
 
-    # ── Single-command buttons ────────────────────────────────────────────
-    _cmds = [
-        (
-            "Daily Research",
-            "research",
-            "Scans the web for trending topics and adds them to your approval queue.",
-        ),
-        (
-            "Competitor Analysis",
-            "weekly_strategy",
-            "Runs the Monday competitor-pattern study right now — no need to wait. "
-            "Queues 7 shaped content ideas for your approval.",
-        ),
-        ("Generate Posts", "content", "Creates posts from topics you have already approved."),
-        ("Refresh Images", "image_refresh", "Regenerates any missing or failed thumbnails."),
-        ("Publish Due Posts", "publish", "Sends any scheduled post whose time has passed."),
-    ]
+def _render_pipeline_controls(scope: str) -> None:
+    """Render the pipeline command buttons. ``scope`` keeps widget keys unique
+    so the same controls can appear in the sidebar and the main body."""
     for label, cmd, tip in _cmds:
-        if st.button(label, use_container_width=True, help=tip):
+        if st.button(label, use_container_width=True, help=tip, key=f"{scope}_{cmd}"):
             try:
                 _queue_command(cmd)
                 st.success("Queued — worker picks up within 2 min.")
@@ -489,7 +480,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ── Combined shortcut ─────────────────────────────────────────────────
     if st.button(
         "Research + Generate",
         use_container_width=True,
@@ -498,7 +488,7 @@ with st.sidebar:
             "in one go. New topics from the research still need your approval before "
             "the next Generate run picks them up."
         ),
-        key="btn_research_generate",
+        key=f"{scope}_research_generate",
     ):
         try:
             _queue_command("weekly_strategy", cooldown_key="rg_strategy")
@@ -509,16 +499,33 @@ with st.sidebar:
         except Exception:
             st.error("Failed to queue commands.")
 
-    st.divider()
-
-    # Manual data refresh
-    if st.button("↺  Refresh data now", use_container_width=True):
+    if st.button("↺  Refresh data now", use_container_width=True, key=f"{scope}_refresh"):
         st.cache_data.clear()
         st.rerun()
 
+
+with st.sidebar:
+    st.markdown(
+        f"""
+<div style="padding:12px 0 22px">
+  {_logo_html(150)}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<div style='font-family:Figtree,sans-serif;font-size:11px;font-weight:600;"
+        f"letter-spacing:0.18em;text-transform:uppercase;color:{ACCENT};margin-bottom:8px'>"
+        "Pipeline Controls</div>",
+        unsafe_allow_html=True,
+    )
+
+    _render_pipeline_controls("sb")
+
     now_utc = datetime.now(UTC)
     st.markdown(
-        f"<div style='font-size:11px;color:{SILVER};margin-top:8px'>"
+        f"<div style='font-size:11px;color:{SILVER};margin-top:12px'>"
         f"{now_utc.strftime('%d %b %Y · %H:%M UTC')}</div>",
         unsafe_allow_html=True,
     )
@@ -547,6 +554,11 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+# ── Pipeline controls (main body — always reachable, incl. mobile) ──────────────
+
+with st.expander("⚙  Pipeline controls — run the bot manually", expanded=False):
+    _render_pipeline_controls("main")
 
 # ── Pipeline status bar ───────────────────────────────────────────────────────
 
