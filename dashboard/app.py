@@ -164,6 +164,13 @@ components.html(
       color: var(--charcoal) !important;
     }
 
+    /* ── Hide Streamlit's deploy / manage-app toolbar ── */
+    [data-testid="stToolbar"],
+    [data-testid="stBottom"],
+    [data-testid="stStatusWidget"],
+    .stDeployButton,
+    #stDecoration { display: none !important; }
+
     /* ── Tabs (pill rail) ── */
     .stTabs [data-baseweb="tab-list"] {
       background: var(--off-white) !important;
@@ -177,7 +184,11 @@ components.html(
       color: var(--slate) !important; background: transparent !important;
       padding: 7px 18px !important;
     }
-    .stTabs [aria-selected="true"] {
+    /* selected tab: set colour on the button AND every child element inside it */
+    .stTabs [aria-selected="true"],
+    .stTabs [aria-selected="true"] p,
+    .stTabs [aria-selected="true"] span,
+    .stTabs [aria-selected="true"] div {
       background: var(--charcoal) !important; color: var(--white) !important;
     }
     .stTabs [data-baseweb="tab-border"] { display: none !important; }
@@ -194,11 +205,17 @@ components.html(
       background: var(--off-white) !important;
       border-color: var(--charcoal) !important; color: var(--charcoal) !important;
     }
-    .stButton > button[kind="primary"] {
+    /* primary button: force white text on every child element, incl. sidebar */
+    .stButton > button[kind="primary"],
+    .stButton > button[kind="primary"] p,
+    .stButton > button[kind="primary"] span,
+    .stButton > button[kind="primary"] div {
       background: var(--black) !important; border-color: var(--black) !important;
       color: var(--white) !important;
     }
-    .stButton > button[kind="primary"]:hover { background: var(--charcoal) !important; }
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button[kind="primary"]:hover p,
+    .stButton > button[kind="primary"]:hover span { background: var(--charcoal) !important; }
 
     /* ── Containers ── */
     [data-testid="stVerticalBlockBorderWrapper"] {
