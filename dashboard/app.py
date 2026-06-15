@@ -164,6 +164,13 @@ components.html(
       color: var(--charcoal) !important;
     }
 
+    /* ── Hide Streamlit's deploy / manage-app toolbar ── */
+    [data-testid="stToolbar"],
+    [data-testid="stBottom"],
+    [data-testid="stStatusWidget"],
+    .stDeployButton,
+    #stDecoration { display: none !important; }
+
     /* ── Tabs (pill rail) ── */
     .stTabs [data-baseweb="tab-list"] {
       background: var(--off-white) !important;
@@ -177,7 +184,11 @@ components.html(
       color: var(--slate) !important; background: transparent !important;
       padding: 7px 18px !important;
     }
-    .stTabs [aria-selected="true"] {
+    /* selected tab: set colour on the button AND every child element inside it */
+    .stTabs [aria-selected="true"],
+    .stTabs [aria-selected="true"] p,
+    .stTabs [aria-selected="true"] span,
+    .stTabs [aria-selected="true"] div {
       background: var(--charcoal) !important; color: var(--white) !important;
     }
     .stTabs [data-baseweb="tab-border"] { display: none !important; }
@@ -194,11 +205,17 @@ components.html(
       background: var(--off-white) !important;
       border-color: var(--charcoal) !important; color: var(--charcoal) !important;
     }
-    .stButton > button[kind="primary"] {
+    /* primary button: force white text on every child element, incl. sidebar */
+    .stButton > button[kind="primary"],
+    .stButton > button[kind="primary"] p,
+    .stButton > button[kind="primary"] span,
+    .stButton > button[kind="primary"] div {
       background: var(--black) !important; border-color: var(--black) !important;
       color: var(--white) !important;
     }
-    .stButton > button[kind="primary"]:hover { background: var(--charcoal) !important; }
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button[kind="primary"]:hover p,
+    .stButton > button[kind="primary"]:hover span { background: var(--charcoal) !important; }
 
     /* ── Containers ── */
     [data-testid="stVerticalBlockBorderWrapper"] {
@@ -419,17 +436,22 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # ── Single-command buttons ────────────────────────────────────────────
     _cmds = [
-        ("Research Now", "research", "Discover trending topics for the approval queue."),
         (
-            "Weekly Strategy",
-            "weekly_strategy",
-            "Competitor-pattern analysis. Queues 7 shaped ideas.",
+            "Daily Research",
+            "research",
+            "Scans the web for trending topics and adds them to your approval queue.",
         ),
-        ("Content Pipeline", "content", "Generate posts directly (skips research gate)."),
-        ("Refresh Images", "image_refresh", "Regenerate missing or failed thumbnails."),
-        ("Publish Due Posts", "publish", "Push any scheduled post whose time has passed."),
-        ("Run Everything", "all", "Image refresh + publish in one go."),
+        (
+            "Competitor Analysis",
+            "weekly_strategy",
+            "Runs the Monday competitor-pattern study right now — no need to wait. "
+            "Queues 7 shaped content ideas for your approval.",
+        ),
+        ("Generate Posts", "content", "Creates posts from topics you have already approved."),
+        ("Refresh Images", "image_refresh", "Regenerates any missing or failed thumbnails."),
+        ("Publish Due Posts", "publish", "Sends any scheduled post whose time has passed."),
     ]
     for label, cmd, tip in _cmds:
         if st.button(label, use_container_width=True, help=tip):
@@ -440,6 +462,28 @@ with st.sidebar:
                 st.warning(str(e))
             except Exception:
                 st.error("Failed to queue command.")
+
+    st.markdown("<div style='margin:6px 0 2px'></div>", unsafe_allow_html=True)
+
+    # ── Combined shortcut ─────────────────────────────────────────────────
+    if st.button(
+        "⚡  Research + Generate",
+        use_container_width=True,
+        type="primary",
+        help=(
+            "Runs Competitor Analysis AND generates posts from already-approved topics "
+            "in one go. New topics from the research still need your approval before "
+            "the next Generate run picks them up."
+        ),
+    ):
+        try:
+            _queue_command("weekly_strategy", cooldown_key="rg_strategy")
+            _queue_command("content", cooldown_key="rg_content")
+            st.success("Queued: competitor analysis + post generation.")
+        except RuntimeError as e:
+            st.warning(str(e))
+        except Exception:
+            st.error("Failed to queue commands.")
 
     st.divider()
 
