@@ -429,34 +429,52 @@ components.html(
      img element's wrapper so it anchors to the image's own top-right corner.
      Re-runs on a MutationObserver so it survives Streamlit reruns. */
   function pinFullscreenBtns() {
-    doc.querySelectorAll('[data-testid="StyledFullScreenButton"]').forEach(function(btn) {
-      if (btn.dataset.btlPinned) return;
-      /* Walk up to find the wrapper that also contains an <img> */
+    /* Match the fullscreen button across Streamlit versions: by test-id, by
+       title ("View fullscreen" / "Exit fullscreen"), or by aria-label. */
+    const sel = [
+      '[data-testid="StyledFullScreenButton"]',
+      '[data-testid="stFullScreenButton"]',
+      'button[title*="fullscreen" i]',
+      'button[title*="full screen" i]',
+      'button[aria-label*="fullscreen" i]',
+    ].join(',');
+    doc.querySelectorAll(sel).forEach(function(btn) {
+      /* Find the nearest ancestor that also contains an <img>. */
       let el = btn.parentElement;
+      let img = null;
       while (el && el !== doc.body) {
-        const img = el.querySelector('img');
-        if (img) {
-          /* Move the button inside the img's direct parent so it's contained */
-          const wrap = img.parentElement;
-          if (wrap && !wrap.contains(btn)) {
-            wrap.style.position = 'relative';
-            wrap.appendChild(btn);
-          }
-          btn.style.setProperty('position', 'absolute', 'important');
-          btn.style.setProperty('top', '0.5rem', 'important');
-          btn.style.setProperty('right', '0.5rem', 'important');
-          btn.style.setProperty('bottom', 'auto', 'important');
-          btn.style.setProperty('left', 'auto', 'important');
-          btn.style.setProperty('z-index', '10', 'important');
-          btn.dataset.btlPinned = '1';
-          break;
-        }
+        const found = el.querySelector('img');
+        if (found) { img = found; break; }
         el = el.parentElement;
       }
+      if (!img) return;
+      /* Move the button to be a direct child of the image's own wrapper so it
+         anchors to the image (not some larger ancestor). Only move once. */
+      const wrap = img.parentElement;
+      if (wrap) {
+        wrap.style.setProperty('position', 'relative', 'important');
+        if (btn.parentElement !== wrap) wrap.appendChild(btn);
+      }
+      /* Re-apply position every pass — Streamlit may reset it on rerun. */
+      btn.style.setProperty('position', 'absolute', 'important');
+      btn.style.setProperty('top', '0.5rem', 'important');
+      btn.style.setProperty('right', '0.5rem', 'important');
+      btn.style.setProperty('bottom', 'auto', 'important');
+      btn.style.setProperty('left', 'auto', 'important');
+      btn.style.setProperty('margin', '0', 'important');
+      btn.style.setProperty('transform', 'none', 'important');
+      btn.style.setProperty('z-index', '10', 'important');
     });
   }
 
   pinFullscreenBtns();
+  /* Run for a few seconds on a timer (initial async render) AND on every
+     subsequent DOM mutation (reruns, hover-revealed buttons). */
+  let pinTries = 0;
+  const pinIv = setInterval(() => {
+    pinFullscreenBtns();
+    if (++pinTries > 40) clearInterval(pinIv);
+  }, 150);
   const mo = new MutationObserver(pinFullscreenBtns);
   mo.observe(doc.body, { childList: true, subtree: true });
 
