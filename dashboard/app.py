@@ -422,41 +422,42 @@ components.html(
   }, 120);
   wire();
 
-  /* ── Pin image fullscreen buttons inside their image corner ─────────────
-     Streamlit renders StyledFullScreenButton as a SIBLING (not a child) of
-     the image element, positioned relative to a large ancestor, which makes
-     it float above/outside the image.  We move each button into the nearest
-     img element's wrapper so it anchors to the image's own top-right corner.
-     Re-runs on a MutationObserver so it survives Streamlit reruns. */
+  /* ── Pin the image toolbar (fullscreen button) inside the image corner ──────
+     Streamlit wraps each image in:
+       stFullScreenFrame > div.e1plw2qp2 > [ stElementToolbar, stImage ]
+     The wrapper div has no position:relative, so stElementToolbar's
+     position:absolute bubbles all the way up to stMain and the button lands
+     at the page/tab-bar level.  We relocate stElementToolbar into stImage
+     (which we make position:relative) so it anchors to the image's top-right
+     corner.  Runs on a MutationObserver + short polling timer to survive
+     Streamlit reruns and hover-lazy rendering. */
   function pinFullscreenBtns() {
-    doc.querySelectorAll('[data-testid="StyledFullScreenButton"]').forEach(function(btn) {
-      if (btn.dataset.btlPinned) return;
-      /* Walk up to find the wrapper that also contains an <img> */
-      let el = btn.parentElement;
-      while (el && el !== doc.body) {
-        const img = el.querySelector('img');
-        if (img) {
-          /* Move the button inside the img's direct parent so it's contained */
-          const wrap = img.parentElement;
-          if (wrap && !wrap.contains(btn)) {
-            wrap.style.position = 'relative';
-            wrap.appendChild(btn);
-          }
-          btn.style.setProperty('position', 'absolute', 'important');
-          btn.style.setProperty('top', '0.5rem', 'important');
-          btn.style.setProperty('right', '0.5rem', 'important');
-          btn.style.setProperty('bottom', 'auto', 'important');
-          btn.style.setProperty('left', 'auto', 'important');
-          btn.style.setProperty('z-index', '10', 'important');
-          btn.dataset.btlPinned = '1';
-          break;
-        }
-        el = el.parentElement;
+    doc.querySelectorAll('[data-testid="stFullScreenFrame"]').forEach(function(frame) {
+      const toolbar = frame.querySelector('[data-testid="stElementToolbar"]');
+      const imgEl   = frame.querySelector('[data-testid="stImage"]');
+      if (!toolbar || !imgEl) return;
+      /* Move toolbar inside the image element (once — guard with a flag). */
+      if (!imgEl.contains(toolbar)) {
+        imgEl.style.setProperty('position', 'relative', 'important');
+        imgEl.appendChild(toolbar);
       }
+      /* Re-apply every pass so Streamlit inline-style resets don't win. */
+      imgEl.style.setProperty('position', 'relative', 'important');
+      toolbar.style.setProperty('position', 'absolute', 'important');
+      toolbar.style.setProperty('top',    '0.5rem', 'important');
+      toolbar.style.setProperty('right',  '0.5rem', 'important');
+      toolbar.style.setProperty('bottom', 'auto',   'important');
+      toolbar.style.setProperty('left',   'auto',   'important');
+      toolbar.style.setProperty('z-index','10',     'important');
     });
   }
 
   pinFullscreenBtns();
+  let pinTries = 0;
+  const pinIv = setInterval(() => {
+    pinFullscreenBtns();
+    if (++pinTries > 40) clearInterval(pinIv);
+  }, 150);
   const mo = new MutationObserver(pinFullscreenBtns);
   mo.observe(doc.body, { childList: true, subtree: true });
 
