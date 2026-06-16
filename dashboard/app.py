@@ -553,6 +553,25 @@ topics = load_topics()
 posts = load_posts()
 
 
+@st.cache_data(ttl=300)
+def load_analytics(_db):
+    try:
+        result = _db.table("post_analytics").select("*").execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+analytics_rows = load_analytics(db)
+# Build lookup: post_id -> best snapshot (prefer 7d over 24h)
+analytics_by_post: dict[str, dict] = {}
+for _arow in analytics_rows:
+    _pid = _arow["post_id"]
+    _existing = analytics_by_post.get(_pid)
+    if _existing is None or _arow["snapshot_type"] == "7d":
+        analytics_by_post[_pid] = _arow
+
+
 def by_status(items, *statuses):
     return [i for i in items if i.get("status") in statuses]
 
@@ -760,7 +779,20 @@ def _sched_str(p):
         return raw
 
 
-def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
+def _compact_num(n: int | None) -> str:
+    """Format an integer compactly: 1200 → '1.2k', 1000000 → '1.0M'."""
+    if n is None:
+        return "—"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
+
+
+def _post_card(
+    post: dict, time_str: str = "", time_label: str = "", analytics: dict | None = None
+) -> None:
     is_carousel = post.get("post_type") == "carousel"
     slides = post.get("slides") or []
     platform = post.get("platform", "")
@@ -810,6 +842,26 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
         unsafe_allow_html=True,
     )
 
+    # Analytics metric badges
+    if analytics:
+        reach = analytics.get("reach") or analytics.get("impressions")
+        likes = analytics.get("likes")
+        comments = analytics.get("comments")
+        badge_parts = []
+        if reach is not None:
+            badge_parts.append(f"👁 {_compact_num(reach)}")
+        if likes is not None:
+            badge_parts.append(f"❤ {_compact_num(likes)}")
+        if comments is not None:
+            badge_parts.append(f"💬 {_compact_num(comments)}")
+        if badge_parts:
+            badges_html = "  ".join(badge_parts)
+            st.markdown(
+                f"<div style='font-size:12px;color:{SLATE};padding:2px 2px 4px'>{badges_html}</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Expandable caption / slides
     if is_carousel and slides:
         with st.expander(f"View {len(slides)} slides"):
             for j, slide in enumerate(slides):
@@ -863,6 +915,7 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
     tab_scheduled,
     tab_calendar,
     tab_published,
+    tab_analytics,
     tab_pipeline,
 ) = st.tabs(
     [
@@ -871,9 +924,12 @@ def _post_card(post: dict, time_str: str = "", time_label: str = "") -> None:
         f"Scheduled  {len(scheduled)}",
         "Calendar",
         f"Published  {len(published)}",
+        "Analytics",
         "Pipeline",
     ]
 )
+# Alias for backward compatibility with any remaining references
+tab_posts = tab_progress
 
 # ── Topics ────────────────────────────────────────────────────────────────────
 
@@ -1220,7 +1276,169 @@ with tab_published:
         for i, post in enumerate(pub_sorted):
             with cols[i % 3]:
                 with st.container(border=True):
-                    _post_card(post, _sched_str(post), "published")
+                    _post_card(
+                        post,
+                        _sched_str(post),
+                        "published",
+                        analytics=analytics_by_post.get(post.get("id", "")),
+                    )
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+with tab_analytics:
+    if not analytics_rows:
+        st.info(
+            "No analytics data yet — metrics are fetched automatically at 24h and 7d "
+            "after each post is published. Click 'Fetch latest metrics' to pull now."
+        )
+        if st.button("📊 Fetch latest metrics", type="primary"):
+            try:
+                _queue_command("analytics")
+                st.success("Queued — analytics will be fetched within 2 minutes.")
+            except RuntimeError as e:
+                st.warning(str(e))
+    else:
+        # --- Enrich analytics with post metadata ---
+        posts_by_id_analytics = {p["id"]: p for p in posts if p.get("id")}
+
+        def _an_reach(r: dict) -> int:
+            return r.get("reach") or r.get("impressions") or 0
+
+        enriched_analytics = []
+        for r in analytics_rows:
+            post_meta = posts_by_id_analytics.get(r["post_id"], {})
+            enriched_analytics.append({**r, "_post": post_meta})
+
+        # Use best snapshot per post for summary stats.
+        best_analytics: dict[str, dict] = {}
+        for r in enriched_analytics:
+            pid = r["post_id"]
+            existing = best_analytics.get(pid)
+            if existing is None or r["snapshot_type"] == "7d":
+                best_analytics[pid] = r
+        best_list = list(best_analytics.values())
+
+        # --- Summary metrics bar ---
+        total_reach = sum(_an_reach(r) for r in best_list)
+        avg_reach = int(total_reach / len(best_list)) if best_list else 0
+
+        from collections import defaultdict as _defaultdict
+
+        plat_reach_sums: dict = _defaultdict(list)
+        pillar_reach_sums: dict = _defaultdict(list)
+        for r in best_list:
+            plat_reach_sums[r.get("platform", "Unknown")].append(_an_reach(r))
+            pillar_reach_sums[r["_post"].get("pillar", "Unknown")].append(_an_reach(r))
+
+        def _avg_list(lst: list) -> int:
+            return int(sum(lst) / len(lst)) if lst else 0
+
+        best_platform = max(
+            plat_reach_sums, key=lambda p: _avg_list(plat_reach_sums[p]), default="—"
+        )
+        best_pillar = max(
+            pillar_reach_sums, key=lambda p: _avg_list(pillar_reach_sums[p]), default="—"
+        )
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Reach", _compact_num(total_reach))
+        m2.metric("Avg Reach / Post", _compact_num(avg_reach))
+        m3.metric("Best Platform", best_platform.title())
+        m4.metric("Best Pillar", best_pillar)
+
+        st.markdown("---")
+
+        # --- Top 10 posts by reach ---
+        sorted_best = sorted(best_list, key=_an_reach, reverse=True)
+        st.markdown(
+            "<div style='font-size:16px;font-weight:700;color:#1D1D1F;padding:8px 0 4px'>Top 10 Posts by Reach</div>",
+            unsafe_allow_html=True,
+        )
+        for rank, r in enumerate(sorted_best[:10], 1):
+            post_meta = r["_post"]
+            t = post_meta.get("title") or post_meta.get("topic") or "Untitled"
+            plat = r.get("platform", "—")
+            pillar = post_meta.get("pillar", "—")
+            reach_val = _an_reach(r)
+            likes_val = r.get("likes") or 0
+            snap = r.get("snapshot_type", "")
+            plat_color = PLATFORM_COLORS.get(plat.lower(), "#6E6E73")
+            st.markdown(
+                f"<div style='padding:6px 0;border-bottom:1px solid #F5F5F7'>"
+                f"<span style='font-weight:700;color:#1D1D1F;font-size:13px'>{rank}. {html.escape(str(t))}</span>"
+                f"&nbsp; <span style='background:{plat_color}18;color:{plat_color};border-radius:9999px;"
+                f"padding:2px 8px;font-size:11px;font-weight:700'>{html.escape(str(plat))}</span>"
+                f"&nbsp; <span style='font-size:11px;color:#6E6E73'>{html.escape(str(pillar))}</span>"
+                f"&nbsp;&nbsp; <span style='font-size:12px;color:#1D1D1F'>👁 {_compact_num(reach_val)}"
+                f"&nbsp; ❤ {_compact_num(likes_val)}</span>"
+                f"&nbsp; <span style='font-size:10px;color:#A1A1A6'>[{snap}]</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
+
+        # --- Platform breakdown ---
+        col_pb, col_pi = st.columns(2)
+        with col_pb:
+            st.markdown(
+                "<div style='font-size:14px;font-weight:700;color:#1D1D1F;padding:4px 0'>Platform Avg Reach</div>",
+                unsafe_allow_html=True,
+            )
+            if plat_reach_sums:
+                import pandas as _pd
+
+                plat_df = _pd.DataFrame(
+                    [
+                        {"Platform": p.title(), "Avg Reach": _avg_list(v)}
+                        for p, v in sorted(plat_reach_sums.items(), key=lambda x: -_avg_list(x[1]))
+                    ]
+                ).set_index("Platform")
+                st.bar_chart(plat_df)
+
+        with col_pi:
+            st.markdown(
+                "<div style='font-size:14px;font-weight:700;color:#1D1D1F;padding:4px 0'>Pillar Avg Reach</div>",
+                unsafe_allow_html=True,
+            )
+            if pillar_reach_sums:
+                import pandas as _pd
+
+                pillar_df = _pd.DataFrame(
+                    [
+                        {"Pillar": p, "Avg Reach": _avg_list(v)}
+                        for p, v in sorted(
+                            pillar_reach_sums.items(), key=lambda x: -_avg_list(x[1])
+                        )
+                    ]
+                ).set_index("Pillar")
+                st.bar_chart(pillar_df)
+
+        # --- Bottom performers ---
+        sorted_worst = sorted(best_list, key=_an_reach)
+        bottom5 = sorted_worst[:5]
+        with st.expander("Bottom Performers (avoid these topics)"):
+            for r in bottom5:
+                post_meta = r["_post"]
+                t = post_meta.get("title") or post_meta.get("topic") or "Untitled"
+                plat = r.get("platform", "—")
+                reach_val = _an_reach(r)
+                st.markdown(
+                    f"- **{html.escape(str(t))}** ({html.escape(str(plat))}) — "
+                    f"👁 {_compact_num(reach_val)} reach",
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("---")
+
+        # --- Fetch latest metrics button ---
+        if st.button("📊 Fetch latest metrics", type="primary"):
+            try:
+                _queue_command("analytics")
+                st.success("Queued — analytics will be fetched within 2 minutes.")
+            except RuntimeError as e:
+                st.warning(str(e))
+
 
 # ── Pipeline flowchart ────────────────────────────────────────────────────────
 

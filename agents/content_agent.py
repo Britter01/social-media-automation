@@ -159,6 +159,11 @@ def _system_prompt(brand_name: str, founder: str, tagline: str, voice: str) -> s
     reuses it at ~0.1x cost. Keep it byte-stable (no timestamps/IDs) or the
     cache won't hit.
     """
+    from agents.analytics_agent import generate_performance_digest
+
+    digest = generate_performance_digest()
+    perf_section = f"\n{digest}\n" if digest else ""
+
     pillars = (
         "AI Guide — practical, accessible explainers that make AI useful today. "
         "Translate hype into what someone can actually do this week.\n"
@@ -173,7 +178,7 @@ def _system_prompt(brand_name: str, founder: str, tagline: str, voice: str) -> s
     )
     platforms = "\n".join(f"{name} — {rules}" for name, rules in _PLATFORM_GUIDANCE.items())
     return (
-        f"You write social media content for {brand_name}, founded by {founder}.\n"
+        perf_section + f"You write social media content for {brand_name}, founded by {founder}.\n"
         f'Tagline: "{tagline}"\n\n'
         "AUDIENCE: curious, time-poor people who like technology but are tired of "
         "hype and noise. They're smart but not necessarily specialists; they want "

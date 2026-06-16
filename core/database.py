@@ -44,6 +44,28 @@ And the topics table the research agent writes to:
     );
     create index if not exists topics_status_idx on topics (status);
     create index if not exists topics_score_idx on topics (relevance_score);
+
+And the analytics table the analytics agent writes to:
+
+    CREATE TABLE IF NOT EXISTS post_analytics (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        platform text NOT NULL,
+        platform_post_id text NOT NULL,
+        snapshot_type text NOT NULL CHECK (snapshot_type IN ('24h','7d')),
+        fetched_at timestamptz NOT NULL DEFAULT now(),
+        reach integer,
+        impressions integer,
+        likes integer,
+        comments integer,
+        shares integer,
+        saves integer,
+        video_views integer,
+        raw_data jsonb,
+        UNIQUE(post_id, snapshot_type)
+    );
+    CREATE INDEX IF NOT EXISTS post_analytics_post_id_idx ON post_analytics(post_id);
+    CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);
 """
 
 from __future__ import annotations
@@ -58,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 _TABLE = "posts"
 _TOPICS_TABLE = "topics"
+_ANALYTICS_TABLE = "post_analytics"
 
 
 class Database:
@@ -239,6 +262,72 @@ class Database:
         except Exception:
             logger.exception("Failed to query topics by status %s", status.value)
             raise
+
+    # --- Analytics -------------------------------------------------------
+
+    def get_analytics_for_posts(self, post_ids: list[str]) -> list[dict]:
+        """Return all post_analytics rows for the given post IDs."""
+        if not post_ids:
+            return []
+        try:
+            resp = (
+                self._client.table(_ANALYTICS_TABLE).select("*").in_("post_id", post_ids).execute()
+            )
+            return resp.data or []
+        except Exception:
+            logger.exception("Failed to fetch analytics for %d post(s)", len(post_ids))
+            return []
+
+    def get_posts_needing_analytics(
+        self, snapshot_type: str, hours_after_publish: int
+    ) -> list[dict]:
+        """Return published posts that need a given analytics snapshot.
+
+        Looks for posts published between ``(now - hours - 2h)`` and
+        ``(now - hours)`` that do NOT yet have a ``post_analytics`` row for
+        ``snapshot_type``.  Returns raw dicts (not Post objects) so the
+        caller gets ``platform_post_id`` without needing a Post model field.
+        """
+        from datetime import timedelta
+
+        now = datetime.now(UTC)
+        window_end = now - timedelta(hours=hours_after_publish)
+        window_start = window_end - timedelta(hours=2)
+        try:
+            # Fetch posts published in the target window with a platform_post_id.
+            resp = (
+                self._client.table(_TABLE)
+                .select("id, platform, platform_post_id, published_time, title, pillar")
+                .eq("status", "published")
+                .not_.is_("platform_post_id", "null")
+                .gte("published_time", window_start.isoformat())
+                .lte("published_time", window_end.isoformat())
+                .execute()
+            )
+            candidates = resp.data or []
+        except Exception:
+            logger.exception("Failed to query posts needing analytics")
+            return []
+
+        if not candidates:
+            return []
+
+        # Filter out posts that already have this snapshot type.
+        candidate_ids = [row["id"] for row in candidates]
+        try:
+            existing_resp = (
+                self._client.table(_ANALYTICS_TABLE)
+                .select("post_id")
+                .in_("post_id", candidate_ids)
+                .eq("snapshot_type", snapshot_type)
+                .execute()
+            )
+            existing_ids = {row["post_id"] for row in (existing_resp.data or [])}
+        except Exception:
+            logger.exception("Failed to query existing analytics snapshots")
+            existing_ids = set()
+
+        return [row for row in candidates if row["id"] not in existing_ids]
 
 
 _db: Database | None = None

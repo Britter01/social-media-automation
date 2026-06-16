@@ -532,6 +532,20 @@ def run_qc_retry() -> None:
     logger.info("QC retry finished: %d post(s) rescheduled", retried)
 
 
+def run_analytics() -> None:
+    """Fetch engagement metrics for posts at 24h and 7d after publish."""
+    from agents.analytics_agent import AnalyticsAgent
+
+    logger.info("=== Analytics fetch starting ===")
+    try:
+        agent = AnalyticsAgent()
+        n24 = agent.run_snapshot("24h")
+        n7d = agent.run_snapshot("7d")
+        logger.info("=== Analytics fetch done: %d 24h, %d 7d snapshots ===", n24, n7d)
+    except Exception:
+        logger.exception("Analytics fetch failed")
+
+
 def run_pending_commands() -> None:
     """Execute any manual pipeline commands queued by the dashboard.
 
@@ -587,6 +601,8 @@ def run_pending_commands() -> None:
                 run_research_pipeline()
             elif command == "weekly_strategy":
                 run_weekly_strategy()
+            elif command == "analytics":
+                run_analytics()
             else:
                 error = f"Unknown command: {command}"
                 logger.warning("Command queue: %s", error)
@@ -733,6 +749,15 @@ def build_scheduler():
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
+    )
+
+    scheduler.add_job(
+        run_analytics,
+        trigger=IntervalTrigger(hours=2),
+        id="analytics",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
     )
 
     scheduler.add_job(
