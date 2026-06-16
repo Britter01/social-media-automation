@@ -46,6 +46,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,17 @@ _BAR_VAR_FRACTION = 0.20
 
 # ── Brand font paths (bundled in assets/fonts/) ───────────────────────────────
 _FONTS_DIR = os.path.join(_ASSETS_ROOT, "fonts")
+# Google Fonts download URLs used as a fallback if the bundled TTFs are missing
+# from the deployment container (should not normally happen — files are in git).
+_FONT_URLS = {
+    "BigShoulders-Bold.ttf": (
+        "https://fonts.gstatic.com/s/bigshouldersdisplay/v21/"
+        "NGSkv5QpQWlGXdg8tnOsCRm29ngl2McajfSa.ttf"
+    ),
+    "BricolageGrotesque-Regular.ttf": (
+        "https://fonts.gstatic.com/s/bricolagegrotesque/v2/pxiAZBhjZQIdd8jGnEotWQ.ttf"
+    ),
+}
 _FONT_HEADLINE = os.path.join(_FONTS_DIR, "BigShoulders-Bold.ttf")
 _FONT_BODY = os.path.join(_FONTS_DIR, "BricolageGrotesque-Regular.ttf")
 
@@ -85,14 +97,41 @@ _TEXT_NUM = (255, 255, 255, 18)  # giant watermark slide number, barely visible
 
 
 def _load_font(path: str, size: int):
-    """Load a TrueType font; fall back to PIL default if unavailable."""
+    """Load a TrueType font at *size* pts.
+
+    Resolution order:
+    1. Load from the bundled path (assets/fonts/).
+    2. If that fails, attempt a one-time download from Google Fonts and cache
+       the file locally so subsequent calls don't re-download.
+    3. If all else fails, return PIL's scaled default font at the requested
+       size (much better than load_default() which is always 10px bitmap).
+    """
+    from PIL import ImageFont
+
+    # Fast path — bundled file is present and readable.
+    if os.path.isfile(path):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception as exc:
+            logger.warning("TTF load failed for %s at size %d: %s", path, size, exc)
+
+    # Slow path — try to download the font once.
+    filename = os.path.basename(path)
+    url = _FONT_URLS.get(filename)
+    if url:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            logger.info("Downloading missing font %s from Google Fonts…", filename)
+            urllib.request.urlretrieve(url, path)
+            return ImageFont.truetype(path, size)
+        except Exception as exc:
+            logger.warning("Font download failed for %s: %s", filename, exc)
+
+    # Last resort — PIL's FreeType default scaled to *size* (readable, at least).
+    logger.error("Using PIL fallback font for %s — carousel text will not use brand typeface", path)
     try:
-        from PIL import ImageFont
-
-        return ImageFont.truetype(path, size)
-    except Exception:
-        from PIL import ImageFont
-
+        return ImageFont.load_default(size=size)
+    except TypeError:
         return ImageFont.load_default()
 
 

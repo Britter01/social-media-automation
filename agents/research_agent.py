@@ -135,6 +135,11 @@ def _system_prompt(
     Platforms paused via DISABLED_PLATFORMS are omitted entirely so the model
     never assigns a topic to a platform we aren't publishing to.
     """
+    from agents.analytics_agent import generate_performance_digest
+
+    digest = generate_performance_digest()
+    perf_section = f"\n{digest}\n" if digest else ""
+
     pillars = (
         "AI Guide — practical, accessible explainers that make AI useful today.\n"
         "Tech Lifestyle — how good technology fits into a well-lived life.\n"
@@ -148,7 +153,7 @@ def _system_prompt(
     platform_fit = ", ".join(_PLATFORM_FIT[p] for p in allowed)
     quoted = ", ".join(f"'{p}'" for p in allowed)
     return (
-        f"You are the content strategist for {brand_name}, founded by {founder}.\n"
+        perf_section + f"You are the content strategist for {brand_name}, founded by {founder}.\n"
         f'Tagline: "{tagline}"\n\n'
         "Your job is to find trending topics worth posting about and judge how "
         "well each fits the brand. Score for relevance to the audience: people "
