@@ -265,6 +265,43 @@ class Database:
 
     # --- Analytics -------------------------------------------------------
 
+    def get_all_published_without_analytics(self) -> list[dict]:
+        """Return all published posts that have no analytics row at all.
+
+        Used for the backfill pass so posts that slipped through the narrow
+        time windows are still captured on a manual fetch.
+        """
+        try:
+            resp = (
+                self._client.table(_TABLE)
+                .select("id, platform, platform_post_id, published_time, title, pillar")
+                .eq("status", "published")
+                .not_.is_("platform_post_id", "null")
+                .execute()
+            )
+            candidates = resp.data or []
+        except Exception:
+            logger.exception("Failed to query all published posts")
+            return []
+
+        if not candidates:
+            return []
+
+        candidate_ids = [row["id"] for row in candidates]
+        try:
+            existing_resp = (
+                self._client.table(_ANALYTICS_TABLE)
+                .select("post_id")
+                .in_("post_id", candidate_ids)
+                .execute()
+            )
+            existing_ids = {row["post_id"] for row in (existing_resp.data or [])}
+        except Exception:
+            logger.exception("Failed to query existing analytics rows")
+            existing_ids = set()
+
+        return [row for row in candidates if row["id"] not in existing_ids]
+
     def get_analytics_for_posts(self, post_ids: list[str]) -> list[dict]:
         """Return all post_analytics rows for the given post IDs."""
         if not post_ids:

@@ -74,6 +74,40 @@ class AnalyticsAgent:
 
         return fetcher(platform_post_id)
 
+    def run_backfill(self) -> int:
+        """Fetch metrics for all published posts that have no analytics row yet.
+
+        This catches posts that were published before the analytics table existed,
+        or that fell outside the narrow scheduled-snapshot windows. Stores a '7d'
+        snapshot (since the post is older than the immediate windows). Returns the
+        number of rows successfully upserted.
+        """
+        from core.database import get_database
+
+        db = get_database(self._cfg)
+        posts = db.get_all_published_without_analytics()
+        if not posts:
+            logger.debug("Backfill: no published posts without analytics")
+            return 0
+
+        logger.info("Backfill: %d post(s) have no analytics — fetching now", len(posts))
+        count = 0
+        for row in posts:
+            post_id = row["id"]
+            platform = row.get("platform", "")
+            platform_post_id = row.get("platform_post_id", "")
+            try:
+                metrics = self.fetch_metrics(post_id, platform, platform_post_id, "7d")
+                if metrics is None:
+                    logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
+                    continue
+                self._upsert(post_id, platform, platform_post_id, "7d", metrics)
+                count += 1
+            except Exception:
+                logger.exception("Backfill failed for post %s (%s)", post_id[:8], platform)
+        logger.info("Backfill: stored %d snapshot(s)", count)
+        return count
+
     def run_snapshot(self, snapshot_type: str) -> int:
         """Fetch and store metrics for all posts due for this snapshot.
 
