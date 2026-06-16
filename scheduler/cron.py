@@ -73,6 +73,10 @@ def run_content_pipeline() -> None:
     platforms = config.configured_platforms() or config.platforms
     pairings = _round_robin_platforms(config.content_pillars, platforms)
 
+    # Seed last_slot from any posts already in the queue so new posts are
+    # scheduled AFTER everything that's already there, not on top of it.
+    last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
+
     created = 0
     for pillar, platform in pairings[: config.posts_per_run] or pairings:
         post = Post(pillar=pillar, platform=platform)
@@ -87,7 +91,9 @@ def run_content_pipeline() -> None:
                 logger.warning("QC rejected post %s: %s", post.id, exc)
                 db.update_status(post, PostStatus.FAILED, error=f"QC: {exc}")
                 continue
-            scheduler_agent.schedule(post)
+            after = last_slot.get(platform)
+            scheduler_agent.schedule(post, after=after)
+            last_slot[platform] = post.scheduled_time
             db.upsert(post)
             created += 1
         except Exception:
@@ -187,7 +193,8 @@ def _finalise_posts(posts: list[Post], db, scheduler_agent, *, persist_insert: b
     quality_agent = _safe_init(QualityAgent, "quality")
     carousel_agent = _safe_init(CarouselAgent, "carousel")
 
-    last_slot: dict[str, datetime] = {}
+    # Seed from the DB so new posts land after whatever's already queued.
+    last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
     scheduled = 0
 
     for post in posts:
@@ -379,7 +386,7 @@ def run_image_refresh() -> None:
                         )
                         new_id = str(_uuid.uuid4())
                         plan = carousel_agent._plan_carousel(source)
-                        slides = carousel_agent._generate_images(new_id, source, plan)
+                        slides = carousel_agent._generate_slides(new_id, source, plan)
                         update: dict = {
                             "title": plan.cover_headline,
                             "slides": slides,

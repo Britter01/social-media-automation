@@ -415,7 +415,11 @@ components.html(
       }
     }
 
-    /* Tabs: remember the selected tab, re-select it once per rerun. */
+    /* Tabs: remember the selected tab, re-select it on rerun.
+       We keep retrying on each poll tick rather than giving up after one
+       click, because React can re-render the tab rail back to index 0
+       after our simulated click.  We only stop when the correct tab is
+       visibly selected, or when the user manually clicks a tab. */
     const list = doc.querySelector('.stTabs [data-baseweb="tab-list"]');
     if (list) {
       const tabs = list.querySelectorAll('[data-baseweb="tab"]');
@@ -423,17 +427,23 @@ components.html(
         if (!list.dataset.btlTabWired) {
           list.dataset.btlTabWired = '1';
           tabs.forEach((t, i) =>
-            t.addEventListener('click', () => ss.setItem(TK, String(i)))
+            /* Real user click: save index + stop any pending restore. */
+            t.addEventListener('click', () => { ss.setItem(TK, String(i)); tabDone = true; })
           );
         }
         if (!tabDone) {
-          tabDone = true;
           const want = ss.getItem(TK);
           const idx = want !== null ? parseInt(want, 10) : NaN;
-          const cur = list.querySelector('[aria-selected="true"]');
-          const ci = Array.prototype.indexOf.call(tabs, cur);
-          if (!isNaN(idx) && idx >= 0 && idx < tabs.length && idx !== ci) {
-            tabs[idx].click();
+          if (!isNaN(idx) && idx >= 0 && idx < tabs.length) {
+            const cur = list.querySelector('[aria-selected="true"]');
+            const ci  = Array.prototype.indexOf.call(tabs, cur);
+            if (ci === idx) {
+              tabDone = true;   /* already on the right tab — stop */
+            } else {
+              tabs[idx].click(); /* keep retrying each poll tick */
+            }
+          } else {
+            tabDone = true;     /* no valid target */
           }
         }
       }
@@ -573,7 +583,7 @@ topics = load_topics()
 posts = load_posts()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_analytics(_db):
     """Return (rows, error). error is a short string if the table is missing
     or unreadable, else None — so the UI can tell 'empty' from 'broken'."""
@@ -1392,16 +1402,26 @@ def _render_analytics_fetch_button():
     if st.button("📊 Fetch latest metrics", type="primary"):
         try:
             _queue_command("analytics")
+            load_analytics.clear()
         except RuntimeError as e:
             st.error(str(e))
     last = load_last_command_status(db, "analytics")
     if last:
+        cmd_id = last.get("id", "")
         status = last.get("status", "?")
         when = (last.get("finished_at") or last.get("requested_at") or "")[:19].replace("T", " ")
         if status == "done":
             msg = last.get("error")  # doubles as the result summary on success
             detail = f" — {msg}" if msg else ""
             st.caption(f"Last fetch: ✅ completed at {when} UTC{detail}")
+            # If the fetch succeeded but cached data is still empty, clear the
+            # cache once per command so the next render picks up the new rows.
+            if not analytics_rows and not analytics_error and cmd_id:
+                _refresh_key = f"_analytics_refreshed_{cmd_id}"
+                if not st.session_state.get(_refresh_key):
+                    st.session_state[_refresh_key] = True
+                    load_analytics.clear()
+                    st.rerun()
         elif status == "failed":
             st.caption(
                 f"Last fetch: ❌ failed at {when} UTC — {last.get('error') or 'unknown error'}"
