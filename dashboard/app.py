@@ -326,6 +326,19 @@ components.html(
     [data-baseweb="option"] { background: var(--white) !important; color: var(--charcoal) !important; }
     [data-baseweb="option"]:hover { background: var(--off-white) !important; }
 
+    /* ── Image enlarge (fullscreen) button ──
+       By default Streamlit floats the expand button above the image's top edge.
+       Pin it inside the image's own top-right corner instead. */
+    [data-testid="stImage"],
+    [data-testid="stImageContainer"] { position: relative !important; }
+    [data-testid="StyledFullScreenButton"] {
+      position: absolute !important;
+      top: 0.5rem !important;
+      right: 0.5rem !important;
+      bottom: auto !important;
+      left: auto !important;
+    }
+
     /* ── Text ── */
     [data-testid="stMarkdownContainer"] p { color: var(--charcoal) !important; }
     [data-testid="stCaptionContainer"] { color: var(--slate) !important; }
