@@ -541,7 +541,10 @@ def run_analytics() -> None:
         agent = AnalyticsAgent()
         n24 = agent.run_snapshot("24h")
         n7d = agent.run_snapshot("7d")
-        logger.info("=== Analytics fetch done: %d 24h, %d 7d snapshots ===", n24, n7d)
+        nb = agent.run_backfill()
+        logger.info(
+            "=== Analytics fetch done: %d 24h, %d 7d snapshots, %d backfilled ===", n24, n7d, nb
+        )
     except Exception:
         logger.exception("Analytics fetch failed")
 
