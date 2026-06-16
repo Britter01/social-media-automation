@@ -232,14 +232,16 @@ components.html(
     .stTabs [data-baseweb="tab-border"] { display: none !important; }
     .stTabs [data-baseweb="tab-panel"] { padding-top: 8px !important; }
 
-    /* ── Buttons (always pill) ── */
-    .stButton > button {
+    /* ── Buttons (always pill) — covers both regular and form-submit buttons ── */
+    .stButton > button,
+    [data-testid="stFormSubmitButton"] > button {
       border-radius: 980px !important; font-weight: 600 !important;
       background: var(--white) !important; color: var(--charcoal) !important;
       border: 1px solid var(--smoke) !important;
       transition: border-color .2s, background .2s !important;
     }
-    .stButton > button:hover {
+    .stButton > button:hover,
+    [data-testid="stFormSubmitButton"] > button:hover {
       background: var(--off-white) !important;
       border-color: var(--charcoal) !important; color: var(--charcoal) !important;
     }
@@ -247,13 +249,22 @@ components.html(
     .stButton > button[kind="primary"],
     .stButton > button[kind="primary"] p,
     .stButton > button[kind="primary"] span,
-    .stButton > button[kind="primary"] div {
+    .stButton > button[kind="primary"] div,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"],
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] p,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] span,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] div {
       background: var(--black) !important; border-color: var(--black) !important;
       color: var(--white) !important;
     }
     .stButton > button[kind="primary"]:hover,
     .stButton > button[kind="primary"]:hover p,
-    .stButton > button[kind="primary"]:hover span { background: var(--charcoal) !important; }
+    .stButton > button[kind="primary"]:hover span,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover p,
+    [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover span {
+      background: var(--charcoal) !important;
+    }
 
 
     /* ── Containers ── */
@@ -443,10 +454,15 @@ def _check_password() -> bool:
 """,
             unsafe_allow_html=True,
         )
-        pwd = st.text_input(
-            "Password", type="password", placeholder="Enter password", label_visibility="collapsed"
-        )
-        if st.button("Sign in", use_container_width=True, type="primary"):
+        with st.form("login_form", border=False):
+            pwd = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Enter password",
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button("Sign in", use_container_width=True, type="primary")
+        if submitted:
             if hmac.compare_digest(pwd, expected):
                 st.session_state["authenticated"] = True
                 st.session_state["_auth_attempts"] = []
