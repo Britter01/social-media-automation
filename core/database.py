@@ -189,6 +189,38 @@ class Database:
             logger.exception("Failed to query posts by status %s", status.value)
             raise
 
+    def latest_scheduled_time_by_platform(self) -> dict[str, datetime]:
+        """Return the most recent ``scheduled_time`` per platform for 'scheduled' posts.
+
+        Used by the pipeline to space new posts after any already in the queue,
+        preventing two posts on the same platform from landing at the same slot.
+        """
+        try:
+            resp = (
+                self._client.table(_TABLE)
+                .select("platform, scheduled_time")
+                .eq("status", "scheduled")
+                .execute()
+            )
+            rows = resp.data or []
+        except Exception:
+            logger.exception("Failed to query latest scheduled times by platform")
+            return {}
+
+        latest: dict[str, datetime] = {}
+        for row in rows:
+            plat = row.get("platform") or ""
+            raw = row.get("scheduled_time") or ""
+            if not plat or not raw:
+                continue
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if plat not in latest or dt > latest[plat]:
+                    latest[plat] = dt
+            except Exception:
+                pass
+        return latest
+
     def due_for_publishing(self, now: datetime | None = None, limit: int = 50) -> list[Post]:
         """Return scheduled posts whose ``scheduled_time`` has passed."""
         now = now or datetime.now(UTC)

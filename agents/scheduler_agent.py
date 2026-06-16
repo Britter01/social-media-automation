@@ -35,6 +35,11 @@ _OPTIMAL_SLOTS: dict[str, list[tuple]] = {
         ({0, 1, 2, 3, 4}, 19, 0),  # weekday evening
         ({5, 6}, 10, 0),  # weekend mid-morning
     ],
+    "facebook": [
+        ({0, 1, 2, 3, 4}, 13, 0),  # weekday after lunch
+        ({0, 1, 2, 3, 4}, 19, 30),  # weekday evening
+        ({5, 6}, 11, 0),  # weekend late morning
+    ],
     "twitter": [
         ({0, 1, 2, 3, 4}, 9, 0),  # weekday commute
         ({0, 1, 2, 3, 4}, 12, 0),  # weekday lunch

@@ -152,6 +152,8 @@ class CarouselAgent:
 
     def _plan_carousel(self, post: Post) -> CarouselPlan:
         """Ask Claude to plan the carousel format and slide copy."""
+        import json
+
         system = (
             f"You are the content strategist for {self._cfg.brand_name}, "
             f"founded by {self._cfg.brand_founder}. "
@@ -159,7 +161,8 @@ class CarouselAgent:
             "Voice: clear, confident, warm. Never patronising. Short sentences. "
             "You are planning a carousel post — a swipeable series of slides. "
             "Each slide should give genuine value. Avoid filler. "
-            "Make the cover slide impossible to scroll past."
+            "Make the cover slide impossible to scroll past. "
+            "Respond with a valid JSON object ONLY — no markdown, no explanation."
         )
         prompt = (
             f"Plan a carousel post for the '{post.pillar}' pillar on {post.platform.upper()}.\n"
@@ -171,20 +174,36 @@ class CarouselAgent:
             "no text overlays, no infographic styles, no logos or brand names in the scene. "
             "Note: most content slides will be rendered as dark text cards (no photo), "
             "so image_prompt is only used for alternating photo slides — keep descriptions "
-            "atmospheric and spatial rather than concept-driven."
+            "atmospheric and spatial rather than concept-driven.\n\n"
+            "Return a JSON object with exactly these fields:\n"
+            '{"format_type": "one of: tips|howto|breakdown|compare|myths", '
+            '"cover_headline": "max 10 words", '
+            '"cover_subtext": "one-sentence teaser", '
+            '"cover_image_prompt": "visual direction, no text/logos", '
+            '"slides": [{"headline": "max 8 words", "body": "1-2 sentences", '
+            '"image_prompt": "atmospheric scene, no text"}], '
+            '"cta_headline": "action or reflection prompt", '
+            '"cta_body": "one warm sentence"}'
         )
-        response = self._client.messages.parse(
+        response = self._client.messages.create(
             model=self._cfg.model_creative,
             max_tokens=2000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "low"},
             system=system,
             messages=[{"role": "user", "content": prompt}],
-            output_format=CarouselPlan,
         )
-        plan = response.parsed_output
-        if plan is None:
-            raise RuntimeError("Claude returned no carousel plan")
+        text = response.content[0].text.strip()
+        # Strip markdown code fences if Claude wraps the JSON
+        if "```json" in text:
+            text = text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
+        elif "```" in text:
+            text = text.split("```", 1)[1].rsplit("```", 1)[0].strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Claude returned invalid JSON: {exc}\nRaw response: {text[:300]}"
+            ) from exc
+        plan = CarouselPlan.model_validate(data)
         logger.info(
             "Planned carousel '%s' (%s, %d slides)",
             plan.cover_headline,
