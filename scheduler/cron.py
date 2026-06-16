@@ -532,8 +532,13 @@ def run_qc_retry() -> None:
     logger.info("QC retry finished: %d post(s) rescheduled", retried)
 
 
-def run_analytics() -> None:
-    """Fetch engagement metrics for posts at 24h and 7d after publish."""
+def run_analytics() -> str | None:
+    """Fetch engagement metrics for posts at 24h and 7d after publish.
+
+    Returns a short human-readable summary (posts checked, snapshots stored,
+    and the most common failure reason) so the dashboard can show *why* a
+    fetch returned nothing instead of leaving the tab blank.
+    """
     from agents.analytics_agent import AnalyticsAgent
 
     logger.info("=== Analytics fetch starting ===")
@@ -545,8 +550,10 @@ def run_analytics() -> None:
         logger.info(
             "=== Analytics fetch done: %d 24h, %d 7d snapshots, %d backfilled ===", n24, n7d, nb
         )
-    except Exception:
+        return agent.summary()
+    except Exception as exc:
         logger.exception("Analytics fetch failed")
+        return f"run failed: {exc}"
 
 
 def run_pending_commands() -> None:
@@ -590,6 +597,7 @@ def run_pending_commands() -> None:
         ).eq("id", cmd_id).execute()
 
         error: str | None = None
+        result_msg: str | None = None
         try:
             if command == "image_refresh":
                 run_image_refresh()
@@ -605,7 +613,7 @@ def run_pending_commands() -> None:
             elif command == "weekly_strategy":
                 run_weekly_strategy()
             elif command == "analytics":
-                run_analytics()
+                result_msg = run_analytics()
             else:
                 error = f"Unknown command: {command}"
                 logger.warning("Command queue: %s", error)
@@ -613,11 +621,13 @@ def run_pending_commands() -> None:
             error = str(exc)
             logger.exception("Command queue: '%s' failed", command)
 
+        # The ``error`` column doubles as a free-text result message: on success
+        # we store the run summary there so the dashboard can show it.
         sb.table("pipeline_commands").update(
             {
                 "status": "failed" if error else "done",
                 "finished_at": datetime.now(UTC).isoformat(),
-                "error": error,
+                "error": error or result_msg,
             }
         ).eq("id", cmd_id).execute()
         status_str = "failed" if error else "done"

@@ -45,7 +45,35 @@ class AnalyticsAgent:
 
         self._client = create_client(cfg.supabase_url, cfg.supabase_key)
 
+        # Run diagnostics, accumulated across this agent's run so the dashboard
+        # can show *why* a fetch returned nothing instead of a blank tab.
+        self._checked = 0
+        self._stored = 0
+        self._errors: list[str] = []
+        self._last_error: str | None = None
+
     # ── Public API ────────────────────────────────────────────────────────────
+
+    def summary(self) -> str:
+        """Human-readable summary of the most recent run for the dashboard."""
+        from collections import Counter
+
+        parts = [f"checked {self._checked} post(s), stored {self._stored}"]
+        if self._stored == 0 and self._errors:
+            top = Counter(self._errors).most_common(2)
+            parts.append("; ".join(f"{msg} (x{n})" for msg, n in top))
+        elif self._stored == 0:
+            parts.append("no metrics returned (check platform tokens/permissions)")
+        return " — ".join(parts)
+
+    def _record(self, post_id: str, platform: str, metrics: dict | None) -> bool:
+        """Track diagnostics for one fetch; return True if metrics were usable."""
+        self._checked += 1
+        if metrics is None:
+            if self._last_error:
+                self._errors.append(self._last_error)
+            return False
+        return True
 
     def fetch_metrics(
         self,
@@ -97,13 +125,16 @@ class AnalyticsAgent:
             platform = row.get("platform", "")
             platform_post_id = row.get("platform_post_id", "")
             try:
+                self._last_error = None
                 metrics = self.fetch_metrics(post_id, platform, platform_post_id, "7d")
-                if metrics is None:
+                if not self._record(post_id, platform, metrics):
                     logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
                     continue
                 self._upsert(post_id, platform, platform_post_id, "7d", metrics)
                 count += 1
-            except Exception:
+                self._stored += 1
+            except Exception as exc:
+                self._errors.append(f"{platform}: {exc}")
                 logger.exception("Backfill failed for post %s (%s)", post_id[:8], platform)
         logger.info("Backfill: stored %d snapshot(s)", count)
         return count
@@ -134,12 +165,14 @@ class AnalyticsAgent:
             platform = row.get("platform", "")
             platform_post_id = row.get("platform_post_id", "")
             try:
+                self._last_error = None
                 metrics = self.fetch_metrics(post_id, platform, platform_post_id, snapshot_type)
-                if metrics is None:
+                if not self._record(post_id, platform, metrics):
                     logger.debug("No metrics returned for post %s (%s)", post_id[:8], platform)
                     continue
                 self._upsert(post_id, platform, platform_post_id, snapshot_type, metrics)
                 count += 1
+                self._stored += 1
             except Exception:
                 logger.exception(
                     "Failed to fetch/store analytics for post %s (%s)", post_id[:8], platform
@@ -190,11 +223,13 @@ class AnalyticsAgent:
             metrics["likes"] = _int(ndata.get("like_count"))
             metrics["comments"] = _int(ndata.get("comments_count"))
         except Exception as exc:
+            self._last_error = f"Instagram media read: {_graph_error(exc)}"
             logger.warning(
                 "Instagram media-node fetch failed for %s: %s", platform_post_id[:12], exc
             )
 
         # 2. Insights — try richest valid set first, fall back on rejection.
+        insights_err: str | None = None
         for metric_set in ("reach,views,saved,shares", "reach,saved", "reach"):
             try:
                 resp = requests.get(
@@ -204,6 +239,7 @@ class AnalyticsAgent:
                 )
                 resp.raise_for_status()
             except Exception as exc:
+                insights_err = f"Instagram insights: {_graph_error(exc)}"
                 logger.warning(
                     "Instagram insights [%s] failed for %s: %s",
                     metric_set,
@@ -213,6 +249,7 @@ class AnalyticsAgent:
                 continue
             data = resp.json()
             raw["insights"] = data
+            insights_err = None
             for item in data.get("data", []):
                 name = item.get("name", "")
                 values = item.get("values") or []
@@ -231,12 +268,17 @@ class AnalyticsAgent:
         # Only treat as "no data" if literally nothing came back.
         meaningful = ("reach", "impressions", "likes", "comments", "saves", "shares")
         if not any(metrics.get(k) is not None for k in meaningful):
-            logger.warning(
-                "Instagram: no metrics retrievable for %s (token may lack "
-                "instagram_manage_insights, or the id isn't a media id)",
-                platform_post_id[:12],
-            )
+            # Surface the most useful reason: a node-read failure (token/id
+            # problem) takes priority over an insights-only failure.
+            if not self._last_error:
+                self._last_error = insights_err or (
+                    "Instagram returned no metrics (token may lack "
+                    "instagram_manage_insights, or the id isn't a media id)"
+                )
+            logger.warning("Instagram: no metrics retrievable for %s", platform_post_id[:12])
             return None
+        # Got at least likes/comments — clear any insights-only error.
+        self._last_error = None
         return metrics
 
     def _fetch_facebook(self, platform_post_id: str) -> dict | None:
@@ -626,3 +668,28 @@ def _int(val: Any) -> int | None:
         return int(val)
     except (TypeError, ValueError):
         return None
+
+
+def _graph_error(exc: Exception) -> str:
+    """Extract a concise, human-readable message from a Graph API error.
+
+    Facebook/Instagram return useful detail in the JSON body
+    (``error.message`` + ``error.code``); pull that out so the dashboard
+    shows "(#100) ... metric not supported" rather than a bare "400".
+    """
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        try:
+            err = (resp.json() or {}).get("error") or {}
+            msg = err.get("message")
+            code = err.get("code")
+            if msg:
+                return f"(#{code}) {msg}" if code is not None else msg
+        except Exception:
+            text = getattr(resp, "text", "") or ""
+            if text:
+                return text[:200]
+        status = getattr(resp, "status_code", "")
+        if status:
+            return f"HTTP {status}"
+    return str(exc)[:200]
