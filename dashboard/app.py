@@ -198,6 +198,13 @@ components.html(
       [data-testid="stSidebar"] { display: none !important; }
     }
 
+    /* Logo in the main header is shown only on mobile (the sidebar logo is
+       hidden there). Hidden on desktop, where the sidebar logo is visible. */
+    .btl-mobile-logo { display: none; }
+    @media (max-width: 767px) {
+      .btl-mobile-logo { display: block !important; }
+    }
+
     /* ── Mobile tweaks (do NOT touch column wrapping — Streamlit needs it
           to stack columns vertically on small screens) ── */
     @media (max-width: 768px) {
@@ -530,6 +537,19 @@ def get_db():
 
 db = get_db()
 
+
+def _supabase_sql_editor_url() -> str:
+    """Build a direct link to the Supabase SQL Editor for this project."""
+    try:
+        raw_url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL", "")
+        ref = raw_url.split("//")[-1].split(".")[0]
+        if ref:
+            return f"https://supabase.com/dashboard/project/{ref}/sql/new"
+    except Exception:
+        pass
+    return "https://supabase.com/dashboard"
+
+
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 
@@ -555,14 +575,33 @@ posts = load_posts()
 
 @st.cache_data(ttl=300)
 def load_analytics(_db):
+    """Return (rows, error). error is a short string if the table is missing
+    or unreadable, else None — so the UI can tell 'empty' from 'broken'."""
     try:
         result = _db.table("post_analytics").select("*").execute()
-        return result.data or []
+        return result.data or [], None
+    except Exception as exc:
+        return [], str(exc)
+
+
+def load_last_command_status(_db, command: str):
+    """Most recent pipeline_commands row for *command*, or None."""
+    try:
+        result = (
+            _db.table("pipeline_commands")
+            .select("*")
+            .eq("command", command)
+            .order("requested_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        return rows[0] if rows else None
     except Exception:
-        return []
+        return None
 
 
-analytics_rows = load_analytics(db)
+analytics_rows, analytics_error = load_analytics(db)
 # Build lookup: post_id -> best snapshot (prefer 7d over 24h)
 analytics_by_post: dict[str, dict] = {}
 for _arow in analytics_rows:
@@ -701,6 +740,7 @@ st.markdown(
             padding:20px 30px;margin-bottom:16px;
             display:flex;align-items:center;justify-content:space-between">
   <div>
+    <div class="btl-mobile-logo" style="margin-bottom:12px">{_logo_html(120)}</div>
     <div style="font-family:'Figtree',sans-serif;font-size:11px;
                 font-weight:600;letter-spacing:0.18em;text-transform:uppercase;
                 color:{ACCENT};margin-bottom:6px">Content Pipeline</div>
@@ -1285,18 +1325,69 @@ with tab_published:
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
+_ANALYTICS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS post_analytics (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    platform text NOT NULL,
+    platform_post_id text NOT NULL,
+    snapshot_type text NOT NULL CHECK (snapshot_type IN ('24h','7d')),
+    fetched_at timestamptz NOT NULL DEFAULT now(),
+    reach integer, impressions integer, likes integer,
+    comments integer, shares integer, saves integer, video_views integer,
+    raw_data jsonb,
+    UNIQUE(post_id, snapshot_type)
+);
+CREATE INDEX IF NOT EXISTS post_analytics_post_id_idx ON post_analytics(post_id);
+CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);"""
+
+
+def _render_analytics_fetch_button():
+    """Fetch button + status of the most recent analytics run, so the user can
+    see whether the worker picked it up and what it returned."""
+    if st.button("📊 Fetch latest metrics", type="primary"):
+        try:
+            _queue_command("analytics")
+        except RuntimeError as e:
+            st.error(str(e))
+    last = load_last_command_status(db, "analytics")
+    if last:
+        status = last.get("status", "?")
+        when = (last.get("finished_at") or last.get("requested_at") or "")[:19].replace("T", " ")
+        if status == "done":
+            st.caption(f"Last fetch: ✅ completed at {when} UTC")
+        elif status == "failed":
+            st.caption(
+                f"Last fetch: ❌ failed at {when} UTC — {last.get('error') or 'unknown error'}"
+            )
+        elif status in ("pending", "running"):
+            st.caption(f"Last fetch: ⏳ {status} (queued {when} UTC) — refresh shortly")
+
+
 with tab_analytics:
-    if not analytics_rows:
+    if analytics_error:
+        _sql_editor_url = _supabase_sql_editor_url()
+        st.error("The **post_analytics** table doesn't exist in your database yet.")
+        st.markdown(
+            f"""
+**To set it up (takes about 30 seconds):**
+
+1. **[Open your Supabase SQL Editor]({_sql_editor_url})** — this link goes directly to it
+2. Copy the SQL below
+3. Paste it into the editor and click **Run**
+4. Come back here and click **Fetch latest metrics**
+"""
+        )
+        st.code(_ANALYTICS_TABLE_SQL, language="sql")
+        with st.expander("Error detail"):
+            st.caption(analytics_error)
+        _render_analytics_fetch_button()
+    elif not analytics_rows:
         st.info(
             "No analytics data yet — metrics are fetched automatically at 24h and 7d "
-            "after each post is published. Click 'Fetch latest metrics' to pull now."
+            "after each post is published. Note: a post must have been **published at "
+            "least 24 hours ago** before any metrics appear here."
         )
-        if st.button("📊 Fetch latest metrics", type="primary"):
-            try:
-                _queue_command("analytics")
-                st.success("Queued — analytics will be fetched within 2 minutes.")
-            except RuntimeError as e:
-                st.warning(str(e))
+        _render_analytics_fetch_button()
     else:
         # --- Enrich analytics with post metadata ---
         posts_by_id_analytics = {p["id"]: p for p in posts if p.get("id")}
@@ -1432,12 +1523,7 @@ with tab_analytics:
         st.markdown("---")
 
         # --- Fetch latest metrics button ---
-        if st.button("📊 Fetch latest metrics", type="primary"):
-            try:
-                _queue_command("analytics")
-                st.success("Queued — analytics will be fetched within 2 minutes.")
-            except RuntimeError as e:
-                st.warning(str(e))
+        _render_analytics_fetch_button()
 
 
 # ── Pipeline flowchart ────────────────────────────────────────────────────────
