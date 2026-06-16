@@ -1399,7 +1399,9 @@ def _render_analytics_fetch_button():
         status = last.get("status", "?")
         when = (last.get("finished_at") or last.get("requested_at") or "")[:19].replace("T", " ")
         if status == "done":
-            st.caption(f"Last fetch: ✅ completed at {when} UTC")
+            msg = last.get("error")  # doubles as the result summary on success
+            detail = f" — {msg}" if msg else ""
+            st.caption(f"Last fetch: ✅ completed at {when} UTC{detail}")
         elif status == "failed":
             st.caption(
                 f"Last fetch: ❌ failed at {when} UTC — {last.get('error') or 'unknown error'}"
