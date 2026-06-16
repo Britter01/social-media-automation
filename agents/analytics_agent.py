@@ -283,14 +283,9 @@ class AnalyticsAgent:
 
     def _fetch_facebook(self, platform_post_id: str) -> dict | None:
         """Fetch Facebook post insights via the Graph API."""
-        token = (
-            self._cfg.facebook_page_access_token
-            if hasattr(self._cfg, "facebook_page_access_token")
-            else None
-        )
+        token = self._cfg.facebook_page_access_token or self._cfg.instagram_access_token
         if not token:
-            token = self._cfg.instagram_access_token
-        if not token:
+            self._last_error = "Facebook: no access token (set FACEBOOK_PAGE_ACCESS_TOKEN)"
             logger.debug("Facebook/Instagram access token not set; skipping")
             return None
         try:
@@ -318,8 +313,16 @@ class AnalyticsAgent:
                         metrics["likes"] = _int(sum(val.values()))
                     else:
                         metrics["likes"] = _int(val)
+            meaningful = ("impressions", "likes")
+            if not any(metrics.get(k) is not None for k in meaningful):
+                self._last_error = (
+                    "Facebook: insights returned no data "
+                    "(check FACEBOOK_PAGE_ACCESS_TOKEN has pages_read_engagement permission)"
+                )
+                return None
             return metrics
-        except Exception:
+        except Exception as exc:
+            self._last_error = f"Facebook: {_graph_error(exc)}"
             logger.exception("Facebook analytics fetch failed for %s", platform_post_id[:12])
             return None
 
@@ -327,14 +330,40 @@ class AnalyticsAgent:
         """Fetch LinkedIn share statistics."""
         token = self._cfg.linkedin_access_token
         if not token:
+            self._last_error = "LinkedIn: no access token (set LINKEDIN_ACCESS_TOKEN)"
             logger.debug("LinkedIn access token not set; skipping")
             return None
+
+        author_urn = self._cfg.linkedin_author_urn
+        if not author_urn:
+            # Try to derive the author URN from the token (same as the publisher).
+            try:
+                resp = requests.get(
+                    "https://api.linkedin.com/v2/userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=_REQUEST_TIMEOUT,
+                )
+                resp.raise_for_status()
+                sub = resp.json().get("sub")
+                if sub:
+                    author_urn = f"urn:li:person:{sub}"
+            except Exception:
+                pass
+
+        if not author_urn:
+            self._last_error = (
+                "LinkedIn: LINKEDIN_AUTHOR_URN not set and could not be derived from token "
+                "(token may lack openid/profile scope)"
+            )
+            logger.debug("LinkedIn author URN not available; skipping analytics")
+            return None
+
         try:
             resp = requests.get(
                 "https://api.linkedin.com/v2/organizationalEntityShareStatistics",
                 params={
                     "q": "organizationalEntity",
-                    "organizationalEntity": self._cfg.linkedin_author_urn or "",
+                    "organizationalEntity": author_urn,
                     "shares[0]": platform_post_id,
                 },
                 headers={
@@ -344,6 +373,10 @@ class AnalyticsAgent:
                 timeout=_REQUEST_TIMEOUT,
             )
             if resp.status_code in (401, 403):
+                self._last_error = (
+                    f"LinkedIn: {resp.status_code} "
+                    "(token may lack r_organization_social or r_member_social scope)"
+                )
                 logger.debug(
                     "LinkedIn analytics: %d (token may lack analytics scope)", resp.status_code
                 )
@@ -360,7 +393,8 @@ class AnalyticsAgent:
                 metrics["shares"] = _int(stats.get("shareCount"))
                 metrics["reach"] = _int(stats.get("uniqueImpressionsCount"))
             return metrics
-        except Exception:
+        except Exception as exc:
+            self._last_error = f"LinkedIn: {exc}"
             logger.exception("LinkedIn analytics fetch failed for %s", platform_post_id[:12])
             return None
 
