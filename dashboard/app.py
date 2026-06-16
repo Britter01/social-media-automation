@@ -1341,6 +1341,52 @@ CREATE INDEX IF NOT EXISTS post_analytics_post_id_idx ON post_analytics(post_id)
 CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);"""
 
 
+def _render_analytics_diagnostics():
+    """Inspect published posts and report why analytics may be empty.
+
+    Runs entirely off data the dashboard already has (the posts list + env),
+    so the user gets a concrete reason instead of a blank tab. The most
+    common causes are: DRY_RUN left on (fake 'dry-run' ids), posts with no
+    platform id, or analytics tokens not configured.
+    """
+    published = [p for p in posts if p.get("status") == "published"]
+    total = len(published)
+    real = [
+        p for p in published if p.get("platform_post_id") and p.get("platform_post_id") != "dry-run"
+    ]
+    dry = [p for p in published if p.get("platform_post_id") == "dry-run"]
+    missing = [p for p in published if not p.get("platform_post_id")]
+
+    tokens = {
+        "Instagram": bool(os.getenv("INSTAGRAM_ACCESS_TOKEN")),
+        "Facebook": bool(
+            os.getenv("FACEBOOK_PAGE_ACCESS_TOKEN") or os.getenv("INSTAGRAM_ACCESS_TOKEN")
+        ),
+        "LinkedIn": bool(os.getenv("LINKEDIN_ACCESS_TOKEN")),
+        "TikTok": bool(os.getenv("TIKTOK_ACCESS_TOKEN")),
+        "YouTube": bool(os.getenv("YOUTUBE_REFRESH_TOKEN")),
+    }
+
+    with st.expander("🔍 Why is there no data yet?", expanded=True):
+        st.markdown(f"**{total}** published posts in total:")
+        st.markdown(f"- ✅ **{len(real)}** have a real platform post ID (these can return metrics)")
+        if dry:
+            st.markdown(
+                f"- ⚠️ **{len(dry)}** are marked `dry-run` — these were **never actually posted "
+                "live**, so no metrics exist for them. This happens when `DRY_RUN` is left on. "
+                "Set `DRY_RUN=false` in your worker's environment variables to publish for real."
+            )
+        if missing:
+            st.markdown(f"- ⚠️ **{len(missing)}** have no platform post ID stored")
+        tok_str = "  ".join(f"{'✅' if v else '❌'} {k}" for k, v in tokens.items())
+        st.markdown(f"**Analytics API tokens** (as seen by this dashboard): {tok_str}")
+        st.caption(
+            "Metrics can only be fetched for posts with a real platform ID *and* a configured "
+            "API token for that platform. If your worker runs as a separate service, its tokens "
+            "may differ from what's shown here."
+        )
+
+
 def _render_analytics_fetch_button():
     """Fetch button + status of the most recent analytics run, so the user can
     see whether the worker picked it up and what it returned."""
@@ -1384,9 +1430,10 @@ with tab_analytics:
     elif not analytics_rows:
         st.info(
             "No analytics data yet — metrics are fetched automatically at 24h and 7d "
-            "after each post is published. Note: a post must have been **published at "
-            "least 24 hours ago** before any metrics appear here."
+            "after each post is published, and a backfill pass picks up older posts on "
+            "each fetch."
         )
+        _render_analytics_diagnostics()
         _render_analytics_fetch_button()
     else:
         # --- Enrich analytics with post metadata ---
