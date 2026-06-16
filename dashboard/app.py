@@ -176,6 +176,28 @@ components.html(
     footer,
     footer * { display: none !important; }
 
+    /* ── Sidebar reopen control — keep it visible & brand-styled so the
+          sidebar can always be brought back after it is collapsed ── */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+      display: flex !important; visibility: visible !important; opacity: 1 !important;
+      z-index: 1000000 !important; top: 0.55rem !important; left: 0.55rem !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] button,
+    [data-testid="collapsedControl"] button {
+      background: var(--white) !important; border: 1px solid var(--smoke) !important;
+      border-radius: 980px !important; color: var(--charcoal) !important;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] button:hover,
+    [data-testid="collapsedControl"] button:hover {
+      border-color: var(--charcoal) !important; background: var(--off-white) !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="collapsedControl"] svg {
+      color: var(--charcoal) !important; fill: var(--charcoal) !important;
+    }
+
     /* ── Mobile tweaks (do NOT touch column wrapping — Streamlit needs it
           to stack columns vertically on small screens) ── */
     @media (max-width: 768px) {
@@ -300,6 +322,81 @@ components.html(
     doc.getElementById('btl-css').textContent = CSS;
   }
 
+  /* ── Keep scroll position and the active tab across reruns ─────────────────
+        Streamlit reruns the whole script on every button click, which resets
+        the scroll position to the top AND snaps tab selection back to the
+        first tab. We persist both in the parent page's sessionStorage and
+        restore them once after each rerun. */
+  const ss = window.parent.sessionStorage;
+  const SK = 'btl-scrollTop';
+  const TK = 'btl-activeTab';
+
+  function scroller() {
+    return doc.querySelector('[data-testid="stMain"]')
+        || doc.querySelector('section.main')
+        || doc.scrollingElement
+        || doc.documentElement;
+  }
+
+  let scrollDone = false;
+  let tabDone = false;
+
+  function wire() {
+    /* Scroll: remember position on scroll, restore once per rerun. */
+    const sc = scroller();
+    if (sc) {
+      if (!sc.dataset.btlScrollWired) {
+        sc.dataset.btlScrollWired = '1';
+        sc.addEventListener(
+          'scroll',
+          () => { ss.setItem(SK, String(sc.scrollTop)); },
+          { passive: true }
+        );
+      }
+      if (!scrollDone) {
+        scrollDone = true;
+        const sv = ss.getItem(SK);
+        const y = sv !== null ? parseInt(sv, 10) : NaN;
+        if (!isNaN(y) && y > 0) {
+          [120, 300, 600].forEach((d) =>
+            setTimeout(() => { try { sc.scrollTop = y; } catch (e) {} }, d)
+          );
+        }
+      }
+    }
+
+    /* Tabs: remember the selected tab, re-select it once per rerun. */
+    const list = doc.querySelector('.stTabs [data-baseweb="tab-list"]');
+    if (list) {
+      const tabs = list.querySelectorAll('[data-baseweb="tab"]');
+      if (tabs.length) {
+        if (!list.dataset.btlTabWired) {
+          list.dataset.btlTabWired = '1';
+          tabs.forEach((t, i) =>
+            t.addEventListener('click', () => ss.setItem(TK, String(i)))
+          );
+        }
+        if (!tabDone) {
+          tabDone = true;
+          const want = ss.getItem(TK);
+          const idx = want !== null ? parseInt(want, 10) : NaN;
+          const cur = list.querySelector('[aria-selected="true"]');
+          const ci = Array.prototype.indexOf.call(tabs, cur);
+          if (!isNaN(idx) && idx >= 0 && idx < tabs.length && idx !== ci) {
+            tabs[idx].click();
+          }
+        }
+      }
+    }
+  }
+
+  /* Poll briefly because Streamlit renders the tab rail asynchronously. */
+  let tries = 0;
+  const iv = setInterval(() => {
+    wire();
+    if ((scrollDone && tabDone) || ++tries > 25) clearInterval(iv);
+  }, 120);
+  wire();
 
 })();
 </script>
