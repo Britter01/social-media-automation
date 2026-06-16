@@ -537,6 +537,19 @@ def get_db():
 
 db = get_db()
 
+
+def _supabase_sql_editor_url() -> str:
+    """Build a direct link to the Supabase SQL Editor for this project."""
+    try:
+        raw_url = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL", "")
+        ref = raw_url.split("//")[-1].split(".")[0]
+        if ref:
+            return f"https://supabase.com/dashboard/project/{ref}/sql/new"
+    except Exception:
+        pass
+    return "https://supabase.com/dashboard"
+
+
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 
@@ -1334,9 +1347,8 @@ def _render_analytics_fetch_button():
     if st.button("📊 Fetch latest metrics", type="primary"):
         try:
             _queue_command("analytics")
-            st.success("Queued — the worker fetches metrics within ~2 minutes. Refresh after that.")
         except RuntimeError as e:
-            st.warning(str(e))
+            st.error(str(e))
     last = load_last_command_status(db, "analytics")
     if last:
         status = last.get("status", "?")
@@ -1353,16 +1365,20 @@ def _render_analytics_fetch_button():
 
 with tab_analytics:
     if analytics_error:
-        st.error(
-            "Couldn't read the **post_analytics** table — it most likely doesn't "
-            "exist in Supabase yet. Analytics can't be stored or displayed until "
-            "it's created."
-        )
+        _sql_editor_url = _supabase_sql_editor_url()
+        st.error("The **post_analytics** table doesn't exist in your database yet.")
         st.markdown(
-            "Run this once in the **Supabase SQL editor**, then click *Fetch latest metrics*:"
+            f"""
+**To set it up (takes about 30 seconds):**
+
+1. **[Open your Supabase SQL Editor]({_sql_editor_url})** — this link goes directly to it
+2. Copy the SQL below
+3. Paste it into the editor and click **Run**
+4. Come back here and click **Fetch latest metrics**
+"""
         )
         st.code(_ANALYTICS_TABLE_SQL, language="sql")
-        with st.expander("Technical detail"):
+        with st.expander("Error detail"):
             st.caption(analytics_error)
         _render_analytics_fetch_button()
     elif not analytics_rows:
