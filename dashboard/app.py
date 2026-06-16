@@ -1352,9 +1352,7 @@ def _render_analytics_diagnostics():
     published = [p for p in posts if p.get("status") == "published"]
     total = len(published)
     real = [
-        p
-        for p in published
-        if p.get("platform_post_id") and p.get("platform_post_id") != "dry-run"
+        p for p in published if p.get("platform_post_id") and p.get("platform_post_id") != "dry-run"
     ]
     dry = [p for p in published if p.get("platform_post_id") == "dry-run"]
     missing = [p for p in published if not p.get("platform_post_id")]
