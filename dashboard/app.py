@@ -427,8 +427,13 @@ components.html(
         if (!list.dataset.btlTabWired) {
           list.dataset.btlTabWired = '1';
           tabs.forEach((t, i) =>
-            /* Real user click: save index + stop any pending restore. */
-            t.addEventListener('click', () => { ss.setItem(TK, String(i)); tabDone = true; })
+            /* Only a *real* user click (isTrusted) saves the index and stops
+               the restore loop. A scripted .click() below is NOT trusted, so
+               it won't prematurely set tabDone — letting us keep retrying
+               until React actually settles on the right tab. */
+            t.addEventListener('click', (ev) => {
+              if (ev.isTrusted) { ss.setItem(TK, String(i)); tabDone = true; }
+            })
           );
         }
         if (!tabDone) {
@@ -1348,7 +1353,17 @@ _ANALYTICS_TABLE_SQL = """CREATE TABLE IF NOT EXISTS post_analytics (
     UNIQUE(post_id, snapshot_type)
 );
 CREATE INDEX IF NOT EXISTS post_analytics_post_id_idx ON post_analytics(post_id);
-CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);"""
+CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);
+
+-- Let the worker write metrics (matches the other tables in this project,
+-- which the worker reads & writes with the same key). Without this, inserts
+-- fail with: 'new row violates row-level security policy'.
+ALTER TABLE post_analytics DISABLE ROW LEVEL SECURITY;"""
+
+# Shown on its own when a fetch completed but every insert was rejected by
+# Supabase Row-Level Security (error code 42501) — the table exists but the
+# worker's key isn't allowed to write to it.
+_ANALYTICS_RLS_FIX_SQL = "ALTER TABLE post_analytics DISABLE ROW LEVEL SECURITY;"
 
 
 def _render_analytics_diagnostics():
@@ -1411,12 +1426,28 @@ def _render_analytics_fetch_button():
         status = last.get("status", "?")
         when = (last.get("finished_at") or last.get("requested_at") or "")[:19].replace("T", " ")
         if status == "done":
-            msg = last.get("error")  # doubles as the result summary on success
+            msg = last.get("error") or ""  # doubles as the result summary on success
             detail = f" — {msg}" if msg else ""
             st.caption(f"Last fetch: ✅ completed at {when} UTC{detail}")
+            # Detect the most common blocker: the fetch worked but every write
+            # was rejected by Supabase Row-Level Security. Surface the one-line
+            # fix directly instead of leaving it buried in the status caption.
+            if "row-level security" in msg.lower() or "42501" in msg:
+                _sql_editor_url = _supabase_sql_editor_url()
+                st.warning(
+                    "Metrics were fetched successfully, but your database is "
+                    "**blocking the worker from saving them** (row-level security "
+                    "is on for `post_analytics`). One line fixes it:"
+                )
+                st.code(_ANALYTICS_RLS_FIX_SQL, language="sql")
+                st.markdown(
+                    f"**[Open your Supabase SQL Editor]({_sql_editor_url})**, paste the "
+                    "line above, click **Run**, then come back and hit "
+                    "**Fetch latest metrics** again."
+                )
             # If the fetch succeeded but cached data is still empty, clear the
             # cache once per command so the next render picks up the new rows.
-            if not analytics_rows and not analytics_error and cmd_id:
+            elif not analytics_rows and not analytics_error and cmd_id:
                 _refresh_key = f"_analytics_refreshed_{cmd_id}"
                 if not st.session_state.get(_refresh_key):
                     st.session_state[_refresh_key] = True
