@@ -62,6 +62,21 @@ def _pick_scene(post_id: str) -> str:
     return os.path.join(_SCENES_DIR, _SCENE_FILES[idx])
 
 
+def _longest_run(arr) -> tuple[int, int]:
+    """Return (start, end) of the longest contiguous True region in a 1-D bool array."""
+    import numpy as np
+
+    padded = np.concatenate([[False], arr.astype(bool), [False]])
+    diffs = np.diff(padded.astype(np.int8))
+    starts = np.where(diffs == 1)[0]
+    ends = np.where(diffs == -1)[0]
+    if len(starts) == 0:
+        return 0, 0
+    lengths = ends - starts
+    best = int(np.argmax(lengths))
+    return int(starts[best]), int(ends[best])
+
+
 def _detect_screen(pil_img):
     """Locate the laptop screen in *pil_img*.
 
@@ -69,10 +84,12 @@ def _detect_screen(pil_img):
     ordered [top-left, top-right, bottom-right, bottom-left], or (None, False)
     if detection fails.
 
-    Uses row/column histogram analysis to find the densest axis-aligned run of
-    very dark (black screen) or very bright (white screen) pixels, then refines
-    the four corners by scanning the top and bottom quintiles of the mask to
-    capture perspective lean.
+    Strategy: build a per-row and per-column coverage vector (fraction of pixels
+    at extreme brightness), then find the *longest contiguous run* of high-coverage
+    rows — this band corresponds to the screen and ignores scattered dark/bright
+    background pixels (book spines, shadows, windows, table reflections).  The
+    column band is then extracted from within those rows.  This is far more robust
+    than a global bounding-box approach for real lifestyle photography.
     """
     try:
         import numpy as np
@@ -83,50 +100,78 @@ def _detect_screen(pil_img):
     h, w = gray.shape
     total = h * w
 
-    for is_white, cond in [
+    # What fraction of pixels in a single row/column must be extreme-brightness
+    # for that row/col to count as "inside the screen".  0.25 is deliberately low
+    # to handle scenes where the screen occupies only ~35% of each row (e.g. the
+    # side-positioned white screen in scene3_woman).
+    _ROW_COV_THRESH = 0.25
+    _COL_COV_THRESH = 0.25
+
+    for is_white, raw_mask in [
         (False, gray < _BLACK_THRESH),
         (True, gray > _WHITE_THRESH),
     ]:
-        ys, xs = np.where(cond)
-        n = len(xs)
-        if not (total * _MIN_AREA_RATIO < n < total * _MAX_AREA_RATIO):
+        mask = raw_mask.astype(np.float32)
+
+        # --- Row band: find the longest run of rows with high coverage ---
+        row_cov = mask.mean(axis=1)  # (h,) — fraction of dark/bright per row
+        y1, y2 = _longest_run(row_cov > _ROW_COV_THRESH)
+        if y2 - y1 < 30:
             continue
 
-        y_min = int(np.percentile(ys, 1))
-        y_max = int(np.percentile(ys, 99))
-        x_min = int(np.percentile(xs, 1))
-        x_max = int(np.percentile(xs, 99))
-
-        box_area = max((x_max - x_min) * (y_max - y_min), 1)
-        fill = n / box_area
-        if fill < _MIN_FILL_DENSITY:
+        # --- Column band: within those rows, find the longest high-coverage run ---
+        col_cov = mask[y1:y2, :].mean(axis=0)  # (w,)
+        x1, x2 = _longest_run(col_cov > _COL_COV_THRESH)
+        if x2 - x1 < 40:
             continue
 
-        scr_w = x_max - x_min
-        scr_h = y_max - y_min
-        if scr_h < 20 or scr_w < 20:
+        scr_w = x2 - x1
+        scr_h = y2 - y1
+
+        # Area and aspect-ratio checks
+        box_area = scr_w * scr_h
+        if not (total * _MIN_AREA_RATIO < box_area < total * _MAX_AREA_RATIO):
             continue
         aspect = scr_w / scr_h
         if not (_MIN_ASPECT <= aspect <= _MAX_ASPECT):
             continue
 
-        # Refine corners from top-quintile and bottom-quintile of the mask
-        q = scr_h * 0.2
-        top_mask = ys < y_min + q
-        bot_mask = ys > y_max - q
+        # Fill density — now measured *inside* the identified band, so scattered
+        # pixels elsewhere in the image do not dilute this score.
+        fill = mask[y1:y2, x1:x2].mean()
+        if fill < _MIN_FILL_DENSITY:
+            continue
 
-        if top_mask.any() and bot_mask.any():
-            tl = (float(np.percentile(xs[top_mask], 5)), float(np.percentile(ys[top_mask], 5)))
-            tr = (float(np.percentile(xs[top_mask], 95)), float(np.percentile(ys[top_mask], 5)))
-            br = (float(np.percentile(xs[bot_mask], 95)), float(np.percentile(ys[bot_mask], 95)))
-            bl = (float(np.percentile(xs[bot_mask], 5)), float(np.percentile(ys[bot_mask], 95)))
+        # Refine the four perspective corners from top/bottom quintile pixels
+        # inside the identified region.
+        ys_r, xs_r = np.where(raw_mask[y1:y2, x1:x2])
+        ys_r = ys_r + y1
+        xs_r = xs_r + x1
+
+        q = scr_h * 0.2
+        top_m = ys_r < y1 + q
+        bot_m = ys_r > y2 - q
+
+        if top_m.any() and bot_m.any():
+            tl = (float(np.percentile(xs_r[top_m], 5)), float(np.percentile(ys_r[top_m], 5)))
+            tr = (float(np.percentile(xs_r[top_m], 95)), float(np.percentile(ys_r[top_m], 5)))
+            br = (float(np.percentile(xs_r[bot_m], 95)), float(np.percentile(ys_r[bot_m], 95)))
+            bl = (float(np.percentile(xs_r[bot_m], 5)), float(np.percentile(ys_r[bot_m], 95)))
         else:
-            tl = (float(x_min), float(y_min))
-            tr = (float(x_max), float(y_min))
-            br = (float(x_max), float(y_max))
-            bl = (float(x_min), float(y_max))
+            tl, tr = (float(x1), float(y1)), (float(x2), float(y1))
+            br, bl = (float(x2), float(y2)), (float(x1), float(y2))
 
         corners = np.array([tl, tr, br, bl], dtype=np.float32)
+        logger.debug(
+            "Screen detected (%s): (%d,%d)→(%d,%d) aspect=%.2f fill=%.2f",
+            "white" if is_white else "black",
+            x1,
+            y1,
+            x2,
+            y2,
+            aspect,
+            fill,
+        )
         return corners, is_white
 
     return None, False
