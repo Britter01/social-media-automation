@@ -76,6 +76,12 @@ class Config:
     google_api_key: str | None = None
     imagen_model: str = "imagen-4.0-generate-001"
 
+    # --- Higgsfield (image generation — primary when key is present) ----
+    # API key format is "KEY_ID:KEY_SECRET" copied from platform.higgsfield.ai.
+    # When set, Higgsfield Soul is used for all image generation; Imagen is
+    # the fallback so posts keep flowing even if Higgsfield is unreachable.
+    higgsfield_api_key: str | None = None
+
     # --- HeyGen (video) -------------------------------------------------
     heygen_api_key: str | None = None
     heygen_voice_id: str | None = None
@@ -184,6 +190,7 @@ class Config:
             model_fast=_get("ANTHROPIC_MODEL_FAST", "claude-haiku-4-5"),
             google_api_key=_get("GOOGLE_API_KEY"),
             imagen_model=_get("IMAGEN_MODEL", "imagen-4.0-generate-001"),
+            higgsfield_api_key=_get("HIGGSFIELD_API_KEY"),
             heygen_api_key=_get("HEYGEN_API_KEY"),
             heygen_voice_id=_get("HEYGEN_VOICE_ID"),
             heygen_avatar_id=_get("HEYGEN_AVATAR_ID"),

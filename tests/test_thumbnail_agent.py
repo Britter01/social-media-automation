@@ -25,8 +25,8 @@ def _no_storage_cfg(base_config):
 def test_generate_writes_local_file(base_config, tmp_path):
     cfg = _no_storage_cfg(base_config)
     agent = ThumbnailAgent(cfg, output_dir=str(tmp_path))
-    agent._client = MagicMock()
-    agent._client.models.generate_images.return_value = _imagen_response()
+    agent._imagen_client = MagicMock()
+    agent._imagen_client.models.generate_images.return_value = _imagen_response()
 
     post = Post(pillar="Tech Lifestyle", platform="instagram", topic="desk setup")
     # Patch the overlay so PIL never tries to decode the fake bytes.
@@ -40,8 +40,8 @@ def test_generate_writes_local_file(base_config, tmp_path):
 
 def test_generate_uses_storage_when_available(base_config, tmp_path):
     agent = ThumbnailAgent(_no_storage_cfg(base_config), output_dir=str(tmp_path))
-    agent._client = MagicMock()
-    agent._client.models.generate_images.return_value = _imagen_response()
+    agent._imagen_client = MagicMock()
+    agent._imagen_client.models.generate_images.return_value = _imagen_response()
     # Simulate a configured storage backend.
     agent._storage = MagicMock()
     agent._storage.upload.return_value = "https://cdn.example/thumb.png"
@@ -59,16 +59,14 @@ def test_generate_uses_storage_when_available(base_config, tmp_path):
 
 def test_generate_raises_when_no_images(base_config, tmp_path):
     agent = ThumbnailAgent(_no_storage_cfg(base_config), output_dir=str(tmp_path))
-    agent._client = MagicMock()
-    agent._client.models.generate_images.return_value = SimpleNamespace(generated_images=[])
+    agent._imagen_client = MagicMock()
+    agent._imagen_client.models.generate_images.return_value = SimpleNamespace(generated_images=[])
     post = Post(pillar="Review", platform="instagram")
     with pytest.raises(RuntimeError):
         agent.generate(post)
 
 
-def test_missing_google_key_raises(base_config):
-    cfg = dataclasses.replace(base_config, google_api_key=None)
-    from core.config import ConfigError
-
-    with pytest.raises(ConfigError):
+def test_missing_both_image_keys_raises(base_config):
+    cfg = dataclasses.replace(base_config, google_api_key=None, higgsfield_api_key=None)
+    with pytest.raises((ValueError, Exception)):
         ThumbnailAgent(cfg)

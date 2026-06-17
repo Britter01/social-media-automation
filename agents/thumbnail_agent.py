@@ -84,18 +84,30 @@ def _build_prompt(post: Post, brand_name: str) -> str:
 
 
 class ThumbnailAgent:
-    """Generates a thumbnail image for a post using Imagen 4 Fast."""
+    """Generates a thumbnail image for a post.
+
+    Provider priority:
+      1. Higgsfield Soul (HIGGSFIELD_API_KEY) — primary when key is present.
+      2. Google Imagen (GOOGLE_API_KEY)       — fallback.
+    Either key is sufficient to init; at least one must be present.
+    """
 
     def __init__(self, cfg: Config = config, output_dir: str | None = None) -> None:
-        cfg.require("google_api_key")
+        if not cfg.higgsfield_api_key and not cfg.google_api_key:
+            raise ValueError("Set HIGGSFIELD_API_KEY or GOOGLE_API_KEY")
         self._cfg = cfg
         self._output_dir = output_dir or os.path.join(tempfile.gettempdir(), "btl_thumbnails")
         os.makedirs(self._output_dir, exist_ok=True)
 
-        from google import genai  # lazy import
+        # Imagen client — only built when the key is present.
+        self._imagen_client = None
+        if cfg.google_api_key:
+            try:
+                from google import genai
 
-        self._genai = genai
-        self._client = genai.Client(api_key=cfg.google_api_key)
+                self._imagen_client = genai.Client(api_key=cfg.google_api_key)
+            except Exception:
+                logger.warning("Could not init Imagen client", exc_info=True)
 
         # Prefer Supabase Storage (public URLs) when credentials are present;
         # fall back to writing locally otherwise.
@@ -111,35 +123,111 @@ class ThumbnailAgent:
                     exc_info=True,
                 )
 
-    def generate_raw(self, post: Post) -> bytes:
-        """Call Imagen and return the raw image bytes — no overlay, no upload.
+    # ── Higgsfield provider ───────────────────────────────────────────────────
 
-        This is the expensive step (one API credit). Callers can apply the
-        overlay separately and retry it without spending another credit.
+    def _generate_higgsfield(self, post: Post) -> bytes:
+        """Generate an image via Higgsfield Soul REST API.
+
+        Flow: POST /v1/text2image/soul → get request_id → poll
+        /requests/{id}/status until completed → download image bytes.
+        Auth header: ``Authorization: Key KEY_ID:KEY_SECRET``.
         """
+        import time
+
+        import requests as _req
+
+        api_key = self._cfg.higgsfield_api_key
+        prompt = _build_prompt(post, self._cfg.brand_name)
+        aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
+
+        headers = {
+            "Authorization": f"Key {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Submit
+        resp = _req.post(
+            "https://platform.higgsfield.ai/v1/text2image/soul",
+            headers=headers,
+            json={
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "quality": "HD",
+                "batch_size": "SINGLE",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        request_id = data.get("request_id") or data.get("id")
+        if not request_id:
+            raise RuntimeError(f"Higgsfield did not return a request_id: {data}")
+
+        # Poll
+        poll_url = f"https://platform.higgsfield.ai/requests/{request_id}/status"
+        deadline = time.time() + 300  # 5-minute timeout
+        interval = 2
+        while time.time() < deadline:
+            time.sleep(interval)
+            interval = min(interval * 1.5, 10)
+            status_resp = _req.get(poll_url, headers=headers, timeout=15)
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            status = status_data.get("status", "")
+            if status == "completed":
+                images = status_data.get("images") or []
+                if not images:
+                    raise RuntimeError("Higgsfield completed but returned no images")
+                image_url = images[0].get("url") or images[0]
+                img_resp = _req.get(image_url, timeout=30)
+                img_resp.raise_for_status()
+                return img_resp.content
+            if status in ("failed", "nsfw"):
+                raise RuntimeError(f"Higgsfield generation {status}: {status_data}")
+        raise RuntimeError("Higgsfield timed out after 5 minutes")
+
+    # ── Imagen provider ───────────────────────────────────────────────────────
+
+    def _generate_imagen(self, post: Post) -> bytes:
+        """Generate an image via Google Imagen."""
+        if not self._imagen_client:
+            raise RuntimeError("Imagen client not available (GOOGLE_API_KEY not set)")
         from google.genai import types
 
         prompt = _build_prompt(post, self._cfg.brand_name)
         aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
-
-        try:
-            response = self._client.models.generate_images(
-                model=self._cfg.imagen_model,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio=aspect_ratio,
-                ),
-            )
-        except Exception:
-            logger.exception("Imagen generation failed for post %s", post.id)
-            raise
-
+        response = self._imagen_client.models.generate_images(
+            model=self._cfg.imagen_model,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio=aspect_ratio,
+            ),
+        )
         images = getattr(response, "generated_images", None) or []
         if not images:
             raise RuntimeError("Imagen returned no images (possibly blocked by safety filters)")
-
         return images[0].image.image_bytes
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def generate_raw(self, post: Post) -> bytes:
+        """Return raw image bytes — no overlay, no upload.
+
+        Tries Higgsfield first (when HIGGSFIELD_API_KEY is set), then falls
+        back to Imagen. The overlay step is free (Pillow), so callers can
+        retry it without spending another generation credit.
+        """
+        if self._cfg.higgsfield_api_key:
+            try:
+                return self._generate_higgsfield(post)
+            except Exception as exc:
+                logger.warning(
+                    "Higgsfield generation failed for post %s (%s); falling back to Imagen",
+                    post.id,
+                    exc,
+                )
+        return self._generate_imagen(post)
 
     def apply_overlay(self, raw_bytes: bytes) -> bytes:
         """Apply the brand overlay to raw image bytes and return the result.
