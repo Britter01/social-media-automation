@@ -44,6 +44,21 @@ from core.models import Post, PostStatus
 
 logger = logging.getLogger(__name__)
 
+
+def _is_quota_error(exc: Exception) -> bool:
+    """Return True if *exc* looks like an Imagen quota / rate-limit error.
+
+    Google's genai client raises various error types; rather than match on a
+    specific class we look for the tell-tale 429 / RESOURCE_EXHAUSTED / quota
+    markers in the string form, which is stable across client versions.
+    """
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in ("429", "resource_exhausted", "quota", "rate limit", "exceeded")
+    )
+
+
 _FORMATS = "tips | howto | breakdown | compare | myths"
 
 _ASPECT_RATIO = {
@@ -263,6 +278,12 @@ class CarouselAgent:
 
         result: list[dict] = []
         content_count = 0  # 1-based counter for numbered slides
+        # Once Imagen reports its quota/rate is exhausted there is no point
+        # retrying it on every remaining slide — each call just costs a network
+        # round-trip and another 429. Flip this flag on the first quota error
+        # and render the rest of the carousel as text-only dark brand cards so
+        # the post still completes (carousels keep flowing when Imagen is down).
+        imagen_exhausted = False
 
         for i, slide in enumerate(all_slides):
             role = slide["role"]
@@ -276,6 +297,9 @@ class CarouselAgent:
                     use_photo = True
                 else:  # cta
                     slide_number = None
+                    use_photo = False
+
+                if imagen_exhausted:
                     use_photo = False
 
                 # Generate Imagen photo where needed
@@ -298,9 +322,16 @@ class CarouselAgent:
                                 "Imagen returned no image for slide %d; using dark card", i
                             )
                             use_photo = False
-                    except Exception:
+                    except Exception as exc:
                         logger.exception("Imagen failed for slide %d; using dark card", i)
                         use_photo = False
+                        if _is_quota_error(exc):
+                            logger.warning(
+                                "Imagen quota exhausted (slide %d) — rendering remaining "
+                                "slides as text-only dark cards",
+                                i,
+                            )
+                            imagen_exhausted = True
 
                 # Render the slide
                 if role == "cover" and raw_bytes:
