@@ -236,7 +236,9 @@ class CarouselAgent:
                     card = _make_scene_cover(carousel_id, slide, self._cfg)
                     if card is None:
                         card = make_dark_text_card(
-                            slide["headline"], slide["body"], slide_number,
+                            slide["headline"],
+                            slide["body"],
+                            slide_number,
                             brand_name=self._cfg.brand_name,
                             brand_tagline=self._cfg.brand_tagline,
                         )

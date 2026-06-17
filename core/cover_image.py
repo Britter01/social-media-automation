@@ -41,7 +41,7 @@ _SCENE_FILES = [
 ]
 
 # Brightness thresholds for screen detection
-_BLACK_THRESH = 28   # pixels darker than this → "black screen" candidate
+_BLACK_THRESH = 28  # pixels darker than this → "black screen" candidate
 _WHITE_THRESH = 225  # pixels brighter than this → "white screen" candidate
 
 # Screen must be between 4% and 60% of the total image area
@@ -116,14 +116,10 @@ def _detect_screen(pil_img):
         bot_mask = ys > y_max - q
 
         if top_mask.any() and bot_mask.any():
-            tl = (float(np.percentile(xs[top_mask], 5)),
-                  float(np.percentile(ys[top_mask], 5)))
-            tr = (float(np.percentile(xs[top_mask], 95)),
-                  float(np.percentile(ys[top_mask], 5)))
-            br = (float(np.percentile(xs[bot_mask], 95)),
-                  float(np.percentile(ys[bot_mask], 95)))
-            bl = (float(np.percentile(xs[bot_mask], 5)),
-                  float(np.percentile(ys[bot_mask], 95)))
+            tl = (float(np.percentile(xs[top_mask], 5)), float(np.percentile(ys[top_mask], 5)))
+            tr = (float(np.percentile(xs[top_mask], 95)), float(np.percentile(ys[top_mask], 5)))
+            br = (float(np.percentile(xs[bot_mask], 95)), float(np.percentile(ys[bot_mask], 95)))
+            bl = (float(np.percentile(xs[bot_mask], 5)), float(np.percentile(ys[bot_mask], 95)))
         else:
             tl = (float(x_min), float(y_min))
             tr = (float(x_max), float(y_min))
@@ -153,13 +149,13 @@ def _perspective_coeffs(src_pts, dst_pts):
         A.append([dx, dy, 1, 0, 0, 0, -sx * dx, -sx * dy])
         A.append([0, 0, 0, dx, dy, 1, -sy * dx, -sy * dy])
         b.extend([sx, sy])
-    coeffs = np.linalg.solve(np.array(A, dtype=np.float64),
-                             np.array(b, dtype=np.float64))
+    coeffs = np.linalg.solve(np.array(A, dtype=np.float64), np.array(b, dtype=np.float64))
     return tuple(float(c) for c in coeffs)
 
 
-def _render_text_card(card_w: int, card_h: int, headline: str, subtext: str,
-                      is_white: bool, brand_tagline: str):
+def _render_text_card(
+    card_w: int, card_h: int, headline: str, subtext: str, is_white: bool, brand_tagline: str
+):
     """Render headline + subtext as a Pillow RGBA image sized card_w × card_h."""
     from PIL import Image, ImageDraw
 
@@ -178,9 +174,13 @@ def _render_text_card(card_w: int, card_h: int, headline: str, subtext: str,
     max_w = card_w - 2 * pad_x
 
     font_hl, hl_lines, hl_sz = _fit_lines(
-        draw, headline, _FONT_HEADLINE,
-        max(26, int(card_h * 0.14)), max(16, int(card_h * 0.07)),
-        max_w, max_lines=3,
+        draw,
+        headline,
+        _FONT_HEADLINE,
+        max(26, int(card_h * 0.14)),
+        max(16, int(card_h * 0.07)),
+        max_w,
+        max_lines=3,
     )
     hl_lh = int(hl_sz * 1.1)
 
@@ -190,9 +190,13 @@ def _render_text_card(card_w: int, card_h: int, headline: str, subtext: str,
     sub_sz = 0
     if subtext:
         font_sub, sub_lines, sub_sz = _fit_lines(
-            draw, subtext, _FONT_BODY,
-            max(13, int(card_h * 0.065)), max(10, int(card_h * 0.046)),
-            max_w, max_lines=3,
+            draw,
+            subtext,
+            _FONT_BODY,
+            max(13, int(card_h * 0.065)),
+            max(10, int(card_h * 0.046)),
+            max_w,
+            max_lines=3,
         )
         sub_lh = int(sub_sz * 1.35)
 
@@ -226,6 +230,7 @@ def _crop_to_square(pil_img, corners=None, target: int = 1080):
     if corners is not None:
         try:
             import numpy as np
+
             cx = float(np.mean(corners[:, 0]))
             cy = float(np.mean(corners[:, 1]))
         except Exception:
@@ -246,6 +251,7 @@ def _crop_to_square(pil_img, corners=None, target: int = 1080):
 
     if side != target:
         from PIL import Image
+
         pil_img = pil_img.resize((target, target), Image.LANCZOS)
     return pil_img
 
@@ -275,6 +281,7 @@ def make_scene_cover(
 
     try:
         from PIL import Image
+
         scene = Image.open(scene_path).convert("RGBA")
     except Exception as exc:
         logger.warning("Could not open scene %s: %s", scene_path, exc)
@@ -314,9 +321,8 @@ def make_scene_cover(
     # Transform the card (card-sized input → scene-sized output)
     try:
         from PIL import Image as PILImage
-        warped = card.transform(
-            (scene_w, scene_h), PILImage.PERSPECTIVE, coeffs, PILImage.BICUBIC
-        )
+
+        warped = card.transform((scene_w, scene_h), PILImage.PERSPECTIVE, coeffs, PILImage.BICUBIC)
     except Exception as exc:
         logger.warning("Perspective transform failed: %s", exc)
         return None
@@ -342,6 +348,9 @@ def make_scene_cover(
     result.save(out, format="PNG", optimize=True)
     logger.info(
         "Scene cover rendered: %s (screen %dx%d, %s screen)",
-        os.path.basename(scene_path), scr_w, scr_h, "white" if is_white else "black",
+        os.path.basename(scene_path),
+        scr_w,
+        scr_h,
+        "white" if is_white else "black",
     )
     return out.getvalue()

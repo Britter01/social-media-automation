@@ -31,28 +31,28 @@ _SCENES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "scenes")
 _SCENE_SPECS = [
     (
         "scene1_library.png",
-        (210, 195, 178),          # warm library beige
-        (180, 280, 600, 370),     # (x, y, w, h) of screen inside 960×1280
-        False,                    # black screen
+        (210, 195, 178),  # warm library beige
+        (180, 280, 600, 370),  # (x, y, w, h) of screen inside 960×1280
+        False,  # black screen
         "Library",
     ),
     (
         "scene2_cafe_iced.png",
-        (190, 185, 175),          # concrete grey café
+        (190, 185, 175),  # concrete grey café
         (160, 260, 640, 400),
         False,
         "Café (iced)",
     ),
     (
         "scene3_woman.png",
-        (170, 145, 120),          # warm café brown
-        (530, 320, 400, 280),     # screen on right side (woman is on left)
-        True,                     # white screen
+        (170, 145, 120),  # warm café brown
+        (530, 320, 400, 280),  # screen on right side (woman is on left)
+        True,  # white screen
         "Woman (white screen)",
     ),
     (
         "scene4_cafe_latte.png",
-        (130, 100, 75),           # dark wooden café
+        (130, 100, 75),  # dark wooden café
         (140, 250, 620, 390),
         False,
         "Café (latte)",
@@ -77,7 +77,8 @@ def _make_scene(bg: tuple, screen_xywh: tuple, is_white: bool, label: str) -> Im
     body_color = (80, 85, 90)
     draw.rounded_rectangle(
         [(sx - body_pad, sy - body_pad), (sx + sw + body_pad, sy + sh + body_pad + 40)],
-        radius=8, fill=body_color,
+        radius=8,
+        fill=body_color,
     )
 
     # Laptop screen (the region cover_image.py will detect)
@@ -87,11 +88,16 @@ def _make_scene(bg: tuple, screen_xywh: tuple, is_white: bool, label: str) -> Im
     # Label (so test images are visually identifiable)
     try:
         from PIL import ImageFont
+
         font = ImageFont.load_default(size=28)
     except TypeError:
         font = ImageFont.load_default()
-    draw.text((sx + 10, sy + 10), f"[PLACEHOLDER — {label}]",
-              fill=(200, 200, 200) if not is_white else (60, 60, 60), font=font)
+    draw.text(
+        (sx + 10, sy + 10),
+        f"[PLACEHOLDER — {label}]",
+        fill=(200, 200, 200) if not is_white else (60, 60, 60),
+        font=font,
+    )
 
     return img
 
