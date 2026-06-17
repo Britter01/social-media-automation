@@ -72,24 +72,30 @@ _BAR_VAR_FRACTION = 0.20
 
 # ── Brand font paths (bundled in assets/fonts/) ───────────────────────────────
 _FONTS_DIR = os.path.join(_ASSETS_ROOT, "fonts")
-# Google Fonts download URLs used as a fallback if the bundled TTFs are missing
+# Brand-kit typefaces (see britetechlifestyle brand kit):
+#   • Headline/hero — the kit's embedded display bold (bundled as BriteHero-Bold).
+#   • Body          — Figtree (variable, default Light 300 — the kit's body weight).
+#   • Tagline       — Playfair Display Italic (the kit's italic accent / banner tagline).
+# Google Fonts download URLs are a fallback if the bundled TTFs are ever missing
 # from the deployment container (should not normally happen — files are in git).
 _FONT_URLS = {
-    "BigShoulders-Bold.ttf": (
-        "https://fonts.gstatic.com/s/bigshouldersdisplay/v21/"
-        "NGSkv5QpQWlGXdg8tnOsCRm29ngl2McajfSa.ttf"
+    "Figtree-Regular.ttf": (
+        "https://github.com/google/fonts/raw/main/ofl/figtree/Figtree%5Bwght%5D.ttf"
     ),
-    "BricolageGrotesque-Regular.ttf": (
-        "https://fonts.gstatic.com/s/bricolagegrotesque/v2/pxiAZBhjZQIdd8jGnEotWQ.ttf"
+    "PlayfairDisplay-Italic.ttf": (
+        "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/"
+        "PlayfairDisplay-Italic%5Bwght%5D.ttf"
     ),
 }
-_FONT_HEADLINE = os.path.join(_FONTS_DIR, "BigShoulders-Bold.ttf")
-_FONT_BODY = os.path.join(_FONTS_DIR, "BricolageGrotesque-Regular.ttf")
+_FONT_HEADLINE = os.path.join(_FONTS_DIR, "BriteHero-Bold.ttf")
+_FONT_BODY = os.path.join(_FONTS_DIR, "Figtree-Regular.ttf")
+_FONT_TAGLINE = os.path.join(_FONTS_DIR, "PlayfairDisplay-Italic.ttf")
 
-# ── Dark card colour palette ──────────────────────────────────────────────────
-_CARD_BG = (12, 14, 20)  # near-black, slight blue tint — tech feel
-_TEXT_WHITE = (255, 255, 255, 255)
-_TEXT_GRAY = (155, 163, 178, 220)  # body copy
+# ── Dark card colour palette (brand kit) ──────────────────────────────────────
+# Dark brand layouts (platform banners / cards) use pure black per the kit.
+_CARD_BG = (0, 0, 0)  # #000000 — brand black
+_TEXT_WHITE = (255, 255, 255, 255)  # #FFFFFF headline
+_TEXT_GRAY = (161, 161, 166, 235)  # #A1A1A6 silver — body copy on dark
 _TEXT_NUM = (255, 255, 255, 18)  # giant watermark slide number, barely visible
 
 
@@ -547,8 +553,10 @@ def make_dark_text_card(
 
     # Headline — sits in the lower half of the card, auto-fitted so the
     # headline and body never collide with the tagline or run off the card.
-    tag_size = max(13, int(h * 0.024))
-    font_tag = _load_font(_FONT_BODY, tag_size)
+    # Tagline uses Playfair Display Italic (brand accent face); size it a touch
+    # larger since serif italics read smaller than the sans body.
+    tag_size = max(15, int(h * 0.028))
+    font_tag = _load_font(_FONT_TAGLINE, tag_size)
 
     max_w = w - 2 * pad
 
