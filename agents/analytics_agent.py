@@ -306,27 +306,45 @@ class AnalyticsAgent:
         metrics: dict[str, Any] = {}
         raw: dict[str, Any] = {}
 
-        # 1. Reactions + comments from the node (valid on feed posts AND photos).
-        try:
-            node = requests.get(
-                f"{_GRAPH_BASE}/{platform_post_id}",
-                params={
-                    "fields": "reactions.summary(total_count).limit(0),"
-                    "comments.summary(total_count).limit(0)",
-                    "access_token": token,
-                },
-                timeout=_REQUEST_TIMEOUT,
-            )
-            node.raise_for_status()
+        # 1. Engagement + comments from the node. Feed posts expose
+        # ``reactions``; photo objects (posts published via /photos) expose
+        # ``likes`` instead and reject ``reactions`` outright. The Graph API
+        # fails the whole request on one invalid field, so try the reactions
+        # field-set first and fall back to the likes field-set.
+        node_err: str | None = None
+        for fieldset, eng_field in (
+            (
+                "reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0)",
+                "reactions",
+            ),
+            ("likes.summary(total_count).limit(0),comments.summary(total_count).limit(0)", "likes"),
+        ):
+            try:
+                node = requests.get(
+                    f"{_GRAPH_BASE}/{platform_post_id}",
+                    params={"fields": fieldset, "access_token": token},
+                    timeout=_REQUEST_TIMEOUT,
+                )
+                node.raise_for_status()
+            except Exception as exc:
+                node_err = f"Facebook node read: {_graph_error(exc)}"
+                logger.warning(
+                    "Facebook node fetch [%s] failed for %s: %s",
+                    eng_field,
+                    platform_post_id[:12],
+                    exc,
+                )
+                continue
             ndata = node.json()
             raw["node"] = ndata
-            reactions = (ndata.get("reactions") or {}).get("summary") or {}
+            engagement = (ndata.get(eng_field) or {}).get("summary") or {}
             comments = (ndata.get("comments") or {}).get("summary") or {}
-            metrics["likes"] = _int(reactions.get("total_count"))
+            metrics["likes"] = _int(engagement.get("total_count"))
             metrics["comments"] = _int(comments.get("total_count"))
-        except Exception as exc:
-            self._last_error = f"Facebook node read: {_graph_error(exc)}"
-            logger.warning("Facebook node fetch failed for %s: %s", platform_post_id[:12], exc)
+            node_err = None
+            break
+        if node_err:
+            self._last_error = node_err
 
         # 2. Shares — separate best-effort call (absent on photo objects).
         try:

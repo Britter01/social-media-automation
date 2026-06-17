@@ -669,6 +669,35 @@ def run_diagnostics() -> str:
     except Exception as exc:
         parts.append(f"storage FAILED ({str(exc)[:80]})")
 
+    # 4. Posts-table schema + what recent posts ACTUALLY saved. Selecting
+    # post_type/slides also proves those columns exist — if they don't, every
+    # carousel save silently fails and this read errors with the column name.
+    try:
+        from supabase import create_client
+
+        sb = create_client(config.supabase_url, config.supabase_key)
+        resp = (
+            sb.table("posts")
+            .select("platform, post_type, thumbnail_url, slides")
+            .order("created_at", desc=True)
+            .limit(6)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            parts.append("recent posts: none")
+        else:
+            summ = []
+            for r in rows:
+                plat = (r.get("platform") or "?")[:2]
+                ptype = "C" if r.get("post_type") == "carousel" else "S"
+                n = len(r.get("slides") or [])
+                img = "img" if r.get("thumbnail_url") else "noimg"
+                summ.append(f"{plat}:{ptype}/{n}sl/{img}")
+            parts.append("recent posts " + ", ".join(summ))
+    except Exception as exc:
+        parts.append(f"posts schema/read FAILED ({str(exc)[:90]})")
+
     report = " — ".join(parts)
     logger.info("=== Diagnostics: %s ===", report)
     return report
