@@ -149,7 +149,7 @@ def _perspective_coeffs(src_pts, dst_pts):
 
     A = []
     b = []
-    for (sx, sy), (dx, dy) in zip(src_pts, dst_pts):
+    for (sx, sy), (dx, dy) in zip(src_pts, dst_pts, strict=False):
         A.append([dx, dy, 1, 0, 0, 0, -sx * dx, -sx * dy])
         A.append([0, 0, 0, dx, dy, 1, -sy * dx, -sy * dy])
         b.extend([sx, sy])
@@ -162,6 +162,7 @@ def _render_text_card(card_w: int, card_h: int, headline: str, subtext: str,
                       is_white: bool, brand_tagline: str):
     """Render headline + subtext as a Pillow RGBA image sized card_w × card_h."""
     from PIL import Image, ImageDraw
+
     from core.image_utils import _FONT_BODY, _FONT_HEADLINE, _FONT_TAGLINE, _fit_lines, _load_font
 
     bg = (255, 255, 255, 255) if is_white else (4, 4, 8, 255)
