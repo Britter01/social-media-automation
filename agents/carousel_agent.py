@@ -348,9 +348,7 @@ class CarouselAgent:
                             if images:
                                 raw_bytes = images[0].image.image_bytes
                             else:
-                                logger.warning(
-                                    "Imagen returned no image for slide %d", i
-                                )
+                                logger.warning("Imagen returned no image for slide %d", i)
                         except Exception as exc:
                             logger.exception("Imagen failed for slide %d; using dark card", i)
                             if _is_quota_error(exc):
