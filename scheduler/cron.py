@@ -303,12 +303,13 @@ def _apply_media(post: Post, thumbnail_agent, video_agent, quality_agent, carous
             return
         except QualityError:
             raise  # propagate so the caller can mark the post failed
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Carousel failed for post %s (%s); falling back to single image",
                 post.id,
                 post.platform,
             )
+            _append_error(post, f"carousel: {type(exc).__name__}: {str(exc)[:300]}")
 
     _generate_media(post, thumbnail_agent, video_agent, quality_agent)
 
@@ -329,9 +330,10 @@ def _generate_media(post: Post, thumbnail_agent, video_agent, quality_agent=None
     if thumbnail_agent is not None:
         try:
             raw_bytes = thumbnail_agent.generate_raw(post)
-        except Exception:
+        except Exception as exc:
             logger.exception("Imagen generation failed for post %s", post.id)
             raw_bytes = None
+            _append_error(post, f"imagen: {type(exc).__name__}: {str(exc)[:300]}")
 
         if raw_bytes is not None:
             final_bytes = thumbnail_agent.apply_overlay(raw_bytes)
@@ -350,8 +352,12 @@ def _generate_media(post: Post, thumbnail_agent, video_agent, quality_agent=None
 
             try:
                 thumbnail_agent.upload(post, final_bytes)
-            except Exception:
+                # Upload succeeded — clear any prior Imagen/upload error note
+                if post.error and post.error.startswith(("imagen:", "upload:")):
+                    post.error = None
+            except Exception as exc:
                 logger.exception("Thumbnail upload failed for post %s", post.id)
+                _append_error(post, f"upload: {type(exc).__name__}: {str(exc)[:300]}")
 
     if needs_video and video_agent is not None:
         try:
@@ -669,6 +675,88 @@ def run_diagnostics() -> str:
     except Exception as exc:
         parts.append(f"storage FAILED ({str(exc)[:80]})")
 
+    # 3b. END-TO-END media test — the steps the pipeline actually runs but the
+    # checks above never exercised: a real Imagen generation call, Pillow slide
+    # rendering, and the brand overlay. This is what pinpoints why every post
+    # comes out with no image even though the agents init fine.
+    media_parts: list[str] = []
+    test_post = Post(
+        pillar="AI Guide", platform="instagram", topic="diagnostic", title="Diagnostic"
+    )
+
+    # Imagen generation (the real API credit — often fails on free-tier keys
+    # where billing isn't enabled, even though the client constructs fine).
+    try:
+        from agents.thumbnail_agent import ThumbnailAgent
+
+        ta = ThumbnailAgent()
+        raw = ta.generate_raw(test_post)
+        media_parts.append(f"imagen OK ({len(raw) // 1024}kb)")
+    except Exception as exc:
+        media_parts.append(f"imagen FAILED ({str(exc)[:110]})")
+
+    # Pillow slide render + brand overlay (no Imagen needed — if THIS fails,
+    # even the dark-card carousel fallback produces zero slides).
+    rendered_png: bytes | None = None
+    try:
+        from core.image_utils import add_brand_overlay, make_dark_text_card
+
+        card = make_dark_text_card(
+            "Diagnostic",
+            "Render test",
+            1,
+            brand_name=config.brand_name,
+            brand_tagline=config.brand_tagline,
+        )
+        rendered_png = add_brand_overlay(
+            card, config.brand_name, config.brand_tagline, corner="top_right"
+        )
+        media_parts.append(f"render OK ({len(rendered_png) // 1024}kb)")
+    except Exception as exc:
+        media_parts.append(f"render FAILED ({str(exc)[:110]})")
+
+    # 3c. PNG image upload test — the previous storage test only uploaded a
+    # 2-byte text file. Actual pipeline uploads are PNG images to the
+    # thumbnails/ and carousels/ paths. A mismatch in bucket policy, file size
+    # limit, or MIME type would show OK above but fail here, explaining why
+    # every post ends up with no image despite imagen + render passing.
+    if rendered_png is not None:
+        try:
+            from core.storage import get_storage
+
+            _st = get_storage()
+            _st.upload("thumbnails/diagnostic-test.png", rendered_png, content_type="image/png")
+            media_parts.append("thumb-upload OK")
+        except Exception as exc:
+            media_parts.append(f"thumb-upload FAILED ({str(exc)[:110]})")
+
+        try:
+            from core.storage import get_storage
+
+            _st = get_storage()
+            _st.upload(
+                "carousels/diagnostic-test/slide_00.png",
+                rendered_png,
+                content_type="image/png",
+            )
+            media_parts.append("carousel-upload OK")
+        except Exception as exc:
+            media_parts.append(f"carousel-upload FAILED ({str(exc)[:110]})")
+
+    # 3d. Carousel planning test — calls Claude to write the carousel JSON plan.
+    # If this fails (bad API key, quota, JSON parse error), every carousel falls
+    # back to single image silently. No Imagen credit is spent here.
+    try:
+        from agents.carousel_agent import CarouselAgent
+
+        _ca = CarouselAgent()
+        _plan = _ca._plan_carousel(test_post)
+        media_parts.append(f"carousel-plan OK ({len(_plan.slides)} slides)")
+    except Exception as exc:
+        media_parts.append(f"carousel-plan FAILED ({str(exc)[:110]})")
+
+    parts.append("; ".join(media_parts))
+
     # 4. Posts-table schema + what recent posts ACTUALLY saved. Selecting
     # post_type/slides also proves those columns exist — if they don't, every
     # carousel save silently fails and this read errors with the column name.
@@ -849,6 +937,14 @@ def _safe_init(agent_cls, label: str):
     except Exception as exc:
         logger.warning("%s agent unavailable: %s", label, exc)
         return None
+
+
+def _append_error(post: Post, msg: str) -> None:
+    """Append a short error note to post.error (separator ' | ')."""
+    if post.error:
+        post.error = f"{post.error} | {msg}"[:1000]
+    else:
+        post.error = msg[:1000]
 
 
 def build_scheduler():
