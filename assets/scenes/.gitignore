@@ -1,0 +1,4 @@
+# Scene source images are tracked assets, not generated outputs.
+!*.png
+!*.jpg
+!*.jpeg
