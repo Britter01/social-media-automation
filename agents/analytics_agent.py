@@ -313,10 +313,11 @@ class AnalyticsAgent:
         # field-set first and fall back to the likes field-set.
         node_err: str | None = None
         for fieldset, eng_field in (
-            ("reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0)",
-             "reactions"),
-            ("likes.summary(total_count).limit(0),comments.summary(total_count).limit(0)",
-             "likes"),
+            (
+                "reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0)",
+                "reactions",
+            ),
+            ("likes.summary(total_count).limit(0),comments.summary(total_count).limit(0)", "likes"),
         ):
             try:
                 node = requests.get(
