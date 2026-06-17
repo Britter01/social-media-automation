@@ -811,6 +811,82 @@ def run_diagnostics() -> str:
     except Exception as exc:
         parts.append(f"posts schema/read FAILED ({str(exc)[:90]})")
 
+    # 5. Facebook post-insights diagnostic — makes the exact API call that
+    # analytics uses so the real Facebook error (metric deprecated, wrong
+    # token scope, etc.) is visible in the System Check output on the
+    # dashboard rather than buried in Railway logs.
+    if config.facebook_page_id and (
+        config.facebook_page_access_token or config.instagram_access_token
+    ):
+        try:
+            import requests as _fb_req
+
+            from agents.analytics_agent import _graph_error as _fb_err
+
+            _fb_user_tok = config.facebook_page_access_token or config.instagram_access_token
+
+            # Derive page token the same way the analytics agent does.
+            _pt_resp = _fb_req.get(
+                f"https://graph.facebook.com/v22.0/{config.facebook_page_id}",
+                params={"fields": "access_token,name", "access_token": _fb_user_tok},
+                timeout=8,
+            )
+            if _pt_resp.ok:
+                _pt_data = _pt_resp.json()
+                _fb_tok = _pt_data.get("access_token") or _fb_user_tok
+                _page_name = _pt_data.get("name", "?")[:20]
+            else:
+                _fb_tok = _fb_user_tok
+                _page_name = f"token-err {_pt_resp.status_code}"
+
+            # Find the most recent real Facebook post to test against.
+            from supabase import create_client as _sb2_cls
+
+            _sb2 = _sb2_cls(config.supabase_url, config.supabase_key)
+            _fb_rows = (
+                _sb2.table("posts")
+                .select("platform_post_id, published_time")
+                .eq("platform", "facebook")
+                .not_.is_("platform_post_id", "null")
+                .neq("platform_post_id", "dry-run")
+                .order("published_time", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if _fb_rows:
+                _fppid = _fb_rows[0].get("platform_post_id", "")
+                _ir = _fb_req.get(
+                    f"https://graph.facebook.com/v22.0/{_fppid}/insights",
+                    params={
+                        "metric": "post_impressions",
+                        "period": "lifetime",
+                        "access_token": _fb_tok,
+                    },
+                    timeout=8,
+                )
+                try:
+                    _ir.raise_for_status()
+                    _idata = _ir.json().get("data", [])
+                    if _idata:
+                        _val = (_idata[0].get("values") or [{}])[0].get("value", "?")
+                        parts.append(f"fb insights OK (page={_page_name}, impressions={_val})")
+                    else:
+                        parts.append(
+                            f"fb insights empty — metric returned no data "
+                            f"(page={_page_name}, post={_fppid[:12]})"
+                        )
+                except Exception as _ie:
+                    parts.append(
+                        f"fb insights FAIL (page={_page_name}, post={_fppid[:12]}): "
+                        f"{_fb_err(_ie)[:150]}"
+                    )
+            else:
+                parts.append("fb insights: no published Facebook post found yet")
+        except Exception as _fe:
+            parts.append(f"fb insights check error: {str(_fe)[:90]}")
+
     report = " — ".join(parts)
     logger.info("=== Diagnostics: %s ===", report)
     return report
