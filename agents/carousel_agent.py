@@ -110,14 +110,25 @@ class CarouselAgent:
     """Generates a multi-slide carousel post from a regular Post's topic."""
 
     def __init__(self, cfg: Config = config) -> None:
-        cfg.require("anthropic_api_key", "google_api_key")
+        cfg.require("anthropic_api_key")
+        if not cfg.higgsfield_api_key and not cfg.google_api_key:
+            raise ValueError(
+                "CarouselAgent needs HIGGSFIELD_API_KEY or GOOGLE_API_KEY for photo slides"
+            )
         self._cfg = cfg
         self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
 
-        from google import genai
+        # Imagen client — only built when the key is present.
+        self._genai_client = None
+        self._genai = None
+        if cfg.google_api_key:
+            try:
+                from google import genai
 
-        self._genai_client = genai.Client(api_key=cfg.google_api_key)
-        self._genai = genai
+                self._genai_client = genai.Client(api_key=cfg.google_api_key)
+                self._genai = genai
+            except Exception:
+                logger.warning("Could not init Imagen client for carousel", exc_info=True)
 
         self._storage = None
         if cfg.supabase_url and cfg.supabase_key:
@@ -234,12 +245,15 @@ class CarouselAgent:
 
         Slide layout:
           Index 0             — cover photo (Imagen + make_cover_card)
-          Content odd (1,3…)  — dark text card (make_dark_text_card, no Imagen)
-          Content even (2,4…) — photo text card (Imagen + make_photo_text_card)
-          Last index          — CTA dark card (make_dark_text_card, no Imagen)
-        """
-        from google.genai import types
+          Content odd (1,3…)  — dark text card (make_dark_text_card, no image gen)
+          Content even (2,4…) — photo text card (Higgsfield/Imagen + make_photo_text_card)
+          Last index          — CTA dark card (make_dark_text_card, no image gen)
 
+        Photo slides try Higgsfield first (when HIGGSFIELD_API_KEY is set),
+        then fall back to Imagen.  If all image generation is exhausted (quota)
+        every remaining slide is rendered as a text-only dark brand card so the
+        carousel always completes.
+        """
         from core.image_utils import (
             add_brand_overlay,
             make_cover_card,
@@ -302,36 +316,53 @@ class CarouselAgent:
                 if imagen_exhausted:
                     use_photo = False
 
-                # Generate Imagen photo where needed
+                # Generate photo for slides that need one.
+                # Priority: Higgsfield Soul → Imagen → dark text card.
                 raw_bytes: bytes | None = None
                 if use_photo:
-                    try:
-                        response = self._genai_client.models.generate_images(
-                            model=self._cfg.imagen_model,
-                            prompt=slide["image_prompt"],
-                            config=types.GenerateImagesConfig(
-                                number_of_images=1,
-                                aspect_ratio=aspect_ratio,
-                            ),
-                        )
-                        images = getattr(response, "generated_images", None) or []
-                        if images:
-                            raw_bytes = images[0].image.image_bytes
-                        else:
-                            logger.warning(
-                                "Imagen returned no image for slide %d; using dark card", i
+                    # 1. Try Higgsfield
+                    if self._cfg.higgsfield_api_key:
+                        try:
+                            raw_bytes = self._generate_higgsfield_image(
+                                slide["image_prompt"], aspect_ratio
                             )
-                            use_photo = False
-                    except Exception as exc:
-                        logger.exception("Imagen failed for slide %d; using dark card", i)
+                        except Exception as exc:
+                            logger.warning(
+                                "Higgsfield failed for slide %d (%s); trying Imagen", i, exc
+                            )
+
+                    # 2. Try Imagen if Higgsfield didn't work
+                    if raw_bytes is None and self._genai_client:
+                        try:
+                            from google.genai import types as _gtypes
+
+                            response = self._genai_client.models.generate_images(
+                                model=self._cfg.imagen_model,
+                                prompt=slide["image_prompt"],
+                                config=_gtypes.GenerateImagesConfig(
+                                    number_of_images=1,
+                                    aspect_ratio=aspect_ratio,
+                                ),
+                            )
+                            images = getattr(response, "generated_images", None) or []
+                            if images:
+                                raw_bytes = images[0].image.image_bytes
+                            else:
+                                logger.warning(
+                                    "Imagen returned no image for slide %d", i
+                                )
+                        except Exception as exc:
+                            logger.exception("Imagen failed for slide %d; using dark card", i)
+                            if _is_quota_error(exc):
+                                logger.warning(
+                                    "Imagen quota exhausted (slide %d) — remaining slides "
+                                    "will be text-only dark cards",
+                                    i,
+                                )
+                                imagen_exhausted = True
+
+                    if raw_bytes is None:
                         use_photo = False
-                        if _is_quota_error(exc):
-                            logger.warning(
-                                "Imagen quota exhausted (slide %d) — rendering remaining "
-                                "slides as text-only dark cards",
-                                i,
-                            )
-                            imagen_exhausted = True
 
                 # Render the slide
                 if role == "cover" and raw_bytes:
@@ -414,6 +445,62 @@ class CarouselAgent:
                 logger.exception("Failed rendering slide %d of post %s", i, post.id)
 
         return result
+
+    def _generate_higgsfield_image(self, prompt: str, aspect_ratio: str) -> bytes:
+        """Generate a slide image via Higgsfield Soul REST API.
+
+        Same submit→poll flow as ThumbnailAgent._generate_higgsfield, but
+        accepts a raw prompt string and aspect_ratio directly so it can be
+        shared across cover and photo content slides.
+        """
+        import time
+
+        import requests as _req
+
+        api_key = self._cfg.higgsfield_api_key
+        headers = {
+            "Authorization": f"Key {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        resp = _req.post(
+            "https://platform.higgsfield.ai/v1/text2image/soul",
+            headers=headers,
+            json={
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "quality": "HD",
+                "batch_size": "SINGLE",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        request_id = data.get("request_id") or data.get("id")
+        if not request_id:
+            raise RuntimeError(f"Higgsfield did not return a request_id: {data}")
+
+        poll_url = f"https://platform.higgsfield.ai/requests/{request_id}/status"
+        deadline = time.time() + 300
+        interval = 2
+        while time.time() < deadline:
+            time.sleep(interval)
+            interval = min(interval * 1.5, 10)
+            status_resp = _req.get(poll_url, headers=headers, timeout=15)
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            status = status_data.get("status", "")
+            if status == "completed":
+                images = status_data.get("images") or []
+                if not images:
+                    raise RuntimeError("Higgsfield completed but returned no images")
+                image_url = images[0].get("url") or images[0]
+                img_resp = _req.get(image_url, timeout=30)
+                img_resp.raise_for_status()
+                return img_resp.content
+            if status in ("failed", "nsfw"):
+                raise RuntimeError(f"Higgsfield generation {status}: {status_data}")
+        raise RuntimeError("Higgsfield timed out after 5 minutes")
 
     def _upload(self, post_id: str, slide_index: int, image_bytes: bytes) -> str:
         """Upload slide image to Supabase; return public URL or local path."""
