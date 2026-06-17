@@ -281,6 +281,29 @@ class AnalyticsAgent:
         self._last_error = None
         return metrics
 
+    def _facebook_page_token(self, user_token: str) -> str | None:
+        """Derive a Page access token from a user access token.
+
+        The publisher uses the same derivation (GET /{page_id}?fields=access_token).
+        Page post insights require a page token — a user token only works for
+        the post node (likes/comments) but NOT for the /insights endpoint, which
+        is why views were missing even though likes/comments were stored.
+        """
+        page_id = self._cfg.facebook_page_id
+        if not page_id:
+            return None
+        try:
+            resp = requests.get(
+                f"{_GRAPH_BASE}/{page_id}",
+                params={"fields": "access_token", "access_token": user_token},
+                timeout=_REQUEST_TIMEOUT,
+            )
+            if resp.ok:
+                return resp.json().get("access_token") or None
+        except Exception as exc:
+            logger.debug("Could not derive Facebook page token: %s", exc)
+        return None
+
     def _fetch_facebook(self, platform_post_id: str) -> dict | None:
         """Fetch Facebook post engagement via the Graph API.
 
@@ -292,12 +315,24 @@ class AnalyticsAgent:
              because photo objects (posts published via /photos) have no
              ``shares`` field and the Graph API rejects the *whole* request if
              any requested field is invalid.
-          3. The insights endpoint for ``post_impressions`` — best-effort, with
-             progressive fallback. Insights metric names change often and the
-             Graph API rejects the *whole* request if any single metric is
-             invalid, so a failure here never discards the node counts.
+          3. The insights endpoint for ``post_impressions`` and
+             ``post_video_views`` — best-effort, with progressive fallback.
+             Insights metric names change often and the Graph API rejects the
+             *whole* request if any single metric is invalid, so a failure here
+             never discards the node counts.
+
+        Important: post insights require a **Page access token**, not a user
+        access token. This function derives one from the user token if an
+        explicit FACEBOOK_PAGE_ACCESS_TOKEN is not configured — mirroring how
+        the publisher obtains its token.
         """
-        token = self._cfg.facebook_page_access_token or self._cfg.instagram_access_token
+        user_token = self._cfg.instagram_access_token
+        token = self._cfg.facebook_page_access_token
+        if not token:
+            if user_token:
+                token = self._facebook_page_token(user_token) or user_token
+            else:
+                token = None
         if not token:
             self._last_error = "Facebook: no access token (set FACEBOOK_PAGE_ACCESS_TOKEN)"
             logger.debug("Facebook/Instagram access token not set; skipping")
@@ -359,9 +394,17 @@ class AnalyticsAgent:
         except Exception as exc:
             logger.debug("Facebook shares unavailable for %s: %s", platform_post_id[:12], exc)
 
-        # 2. Insights — impressions only, best-effort with fallback.
+        # 3. Insights — impressions + video views, best-effort with fallback.
+        # post_video_views captures views for carousel/slideshow posts that
+        # Facebook treats as video content — this is what the native Facebook
+        # "Views" counter shows for those post types.
         insights_err: str | None = None
-        for metric_set in ("post_impressions_unique,post_impressions", "post_impressions"):
+        for metric_set in (
+            "post_impressions_unique,post_impressions,post_video_views",
+            "post_impressions_unique,post_impressions",
+            "post_impressions",
+            "post_video_views",
+        ):
             try:
                 resp = requests.get(
                     f"{_GRAPH_BASE}/{platform_post_id}/insights",
@@ -393,10 +436,12 @@ class AnalyticsAgent:
                     metrics["impressions"] = _int(val)
                 elif name == "post_impressions_unique":
                     metrics["reach"] = _int(val)
+                elif name == "post_video_views":
+                    metrics["video_views"] = _int(val)
             break  # first successful call wins
 
         metrics["raw_data"] = raw
-        meaningful = ("impressions", "reach", "likes", "comments", "shares")
+        meaningful = ("impressions", "reach", "likes", "comments", "shares", "video_views")
         if not any(metrics.get(k) is not None for k in meaningful):
             if not self._last_error:
                 self._last_error = insights_err or (
