@@ -904,15 +904,17 @@ def run_diagnostics() -> str:
             )
             if _fb_rows:
                 _fppid = _fb_rows[0].get("platform_post_id", "")
-                # Mirror the analytics agent's fallback sequence — several
-                # post_impressions metrics have been deprecated by Facebook and
-                # return (#100). Try each set until one succeeds.
+                # Mirror the analytics agent's fallback sequence. Meta deprecated
+                # the post_impressions* family (and 3-sec post_video_views) for
+                # ALL API versions on 2026-06-15, returning (#100); the unified
+                # "post_views" metric replaces them. Try new names first, then
+                # legacy, until one succeeds.
                 _fb_success = False
                 _fb_tried: list[str] = []
                 for _mset in (
+                    "post_views_unique,post_views",
+                    "post_views",
                     "post_impressions_unique,post_impressions,post_video_views",
-                    "post_impressions_unique,post_impressions",
-                    "post_video_views",
                 ):
                     try:
                         _ir = _fb_req.get(
