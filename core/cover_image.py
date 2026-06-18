@@ -59,7 +59,7 @@ _SCENE_CORNERS: dict[str, tuple[bool, list[tuple[int, int]]]] = {
     ),
     "scene4_cafe_latte.png": (
         False,
-        [(165, 720), (1038, 664), (1098, 1243), (221, 1371)],
+        [(153, 720), (1038, 656), (1098, 1243), (221, 1371)],
     ),
 }
 
