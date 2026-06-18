@@ -59,6 +59,9 @@ class AnalyticsAgent:
         # the row, but we surface them so a "likes but no views" case isn't
         # silently invisible.
         self._warnings: list[str] = []
+        # LinkedIn personal-profile detection — only emit the "no analytics API"
+        # error once per run, not once per post (avoids x24 noise in the summary).
+        self._linkedin_no_org_logged = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -141,7 +144,32 @@ class AnalyticsAgent:
                 self._last_error = None
                 metrics = self.fetch_metrics(post_id, platform, platform_post_id, "7d")
                 if not self._record(post_id, platform, metrics):
-                    logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
+                    # Permanently invalid post IDs (e.g. "does not exist" from the
+                    # Graph API) would be retried on every backfill run forever.
+                    # Tombstone them with an all-null row so they drop out of the
+                    # no-analytics queue without polluting real metric totals.
+                    err = self._last_error or ""
+                    _permanent = (
+                        "does not exist" in err
+                        or "missing permissions" in err
+                        or "does not support this operation" in err
+                    )
+                    if _permanent:
+                        logger.info(
+                            "Backfill: tombstoning permanently-invalid post %s (%s): %s",
+                            post_id[:8],
+                            platform,
+                            err[:120],
+                        )
+                        self._upsert(
+                            post_id,
+                            platform,
+                            platform_post_id,
+                            "7d",
+                            {"raw_data": {"tombstone": True, "error": err[:400]}},
+                        )
+                    else:
+                        logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
                     continue
                 self._upsert(post_id, platform, platform_post_id, "7d", metrics)
                 count += 1
@@ -424,28 +452,32 @@ class AnalyticsAgent:
         except Exception as exc:
             logger.debug("Facebook shares unavailable for %s: %s", platform_post_id[:12], exc)
 
-        # 3. Insights — impressions + video views, best-effort with fallback.
-        # post_video_views captures views for carousel/slideshow posts that
-        # Facebook treats as video content — this is what the native Facebook
-        # "Views" counter shows for those post types.
+        # 3. Insights — views/reach, best-effort with fallback.
         #
-        # Fallback order:
-        #   a) Full metric set with period=lifetime
-        #   b) Reduced metric sets with period=lifetime
-        #   c) post_impressions without a period param (API infers it) — works
-        #      on some v22 deployments where lifetime was deprecated
-        # (#100) returned for ALL sets almost always means either the token is a
-        # user token (not a page token) or the app lacks pages_read_engagement.
+        # IMPORTANT (2026-06-15 deprecation): Meta removed the entire
+        # post_impressions* family AND the 3-second post_video_views metric for
+        # ALL Graph API versions. Calling them now returns
+        # "(#100) ... must be a valid insights metric" even with a correct page
+        # token and pages_read_engagement — the token is NOT the problem. The
+        # replacement is the unified "views" metric (the same migration Instagram
+        # already made: impressions -> views).
+        #
+        # We try the new metric names first, then fall back to the legacy ones so
+        # any pre-deprecation/backfilled data still resolves. The Graph API
+        # rejects the whole request if ANY metric in the set is invalid, so each
+        # set is attempted independently and the first that succeeds wins.
         insights_err: str | None = None
         _insight_params: list[dict] = [
             {"metric": m, "period": "lifetime"}
             for m in (
+                # New unified "views" metrics (post_impressions replacement).
+                "post_views_unique,post_views",
+                "post_views",
+                # Legacy (valid only on data created before 2026-06-15).
                 "post_impressions_unique,post_impressions,post_video_views",
-                "post_impressions_unique,post_impressions",
                 "post_impressions",
-                "post_video_views",
             )
-        ] + [{"metric": "post_impressions"}]  # no period — let API infer
+        ] + [{"metric": "post_views"}]  # no period — let the API infer it
         for params in _insight_params:
             try:
                 resp = requests.get(
@@ -470,9 +502,11 @@ class AnalyticsAgent:
                 name = item.get("name", "")
                 values = item.get("values") or []
                 val = values[0].get("value") if values else item.get("value")
-                if name == "post_impressions":
+                # Map both new (views) and legacy (impressions) names onto the
+                # same stored columns so the dashboard is naming-agnostic.
+                if name in ("post_views", "post_impressions"):
                     metrics["impressions"] = _int(val)
-                elif name == "post_impressions_unique":
+                elif name in ("post_views_unique", "post_impressions_unique"):
                     metrics["reach"] = _int(val)
                 elif name == "post_video_views":
                     metrics["video_views"] = _int(val)
@@ -500,9 +534,11 @@ class AnalyticsAgent:
                 )
             elif "(#100)" in insights_err:
                 self._warnings.append(
-                    "Facebook views missing: insights returned (#100) for all metric sets — "
-                    "the page token likely lacks pages_read_engagement permission. "
-                    "Add it in Meta for Developers → App Dashboard → Permissions and re-authorise."
+                    "Facebook views missing: insights returned (#100) for every metric set, "
+                    "including the new 'post_views' names. Meta deprecated post_impressions "
+                    "(and 3-sec video views) for ALL API versions on 2026-06-15; if 'post_views' "
+                    "is also rejected the exact new field name may differ for this object type — "
+                    "engagement (likes/comments/shares) is still captured."
                 )
             else:
                 self._warnings.append(insights_err)
@@ -533,11 +569,20 @@ class AnalyticsAgent:
         # person) is a personal profile with no analytics API.
         org_urn = self._cfg.linkedin_author_urn or ""
         if "urn:li:organization" not in org_urn:
-            self._last_error = (
-                "LinkedIn: personal-profile post analytics are not available via the API "
-                "(only company pages expose stats; r_member_social is no longer granted)"
-            )
-            logger.debug("LinkedIn personal profile — no analytics API; skipping")
+            if not self._linkedin_no_org_logged:
+                # Emit this configuration fact only once per agent run so it
+                # appears as (x1) in the summary rather than (x24).
+                self._last_error = (
+                    "LinkedIn: personal-profile post analytics are not available via the API "
+                    "(only company pages expose stats; r_member_social is no longer granted)"
+                )
+                self._linkedin_no_org_logged = True
+                logger.info(
+                    "LinkedIn personal profile — analytics API unavailable; "
+                    "skipping all LinkedIn posts"
+                )
+            else:
+                self._last_error = None  # already counted; don't re-add to _errors
             return None
 
         try:
