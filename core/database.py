@@ -20,11 +20,17 @@ Expected table (create once in the Supabase SQL editor):
         published_time timestamptz,
         platform_post_id text,
         error text,
+        post_type text not null default 'standard',
+        slides jsonb default '[]'::jsonb,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
     );
     create index if not exists posts_status_idx on posts (status);
     create index if not exists posts_scheduled_idx on posts (scheduled_time);
+
+-- If upgrading from an older schema that is missing these columns, run:
+--   alter table posts add column if not exists post_type text not null default 'standard';
+--   alter table posts add column if not exists slides jsonb default '[]'::jsonb;
 
 And the topics table the research agent writes to:
 
