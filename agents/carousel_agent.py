@@ -304,22 +304,14 @@ class CarouselAgent:
         return result
 
     def _upload(self, post_id: str, slide_index: int, image_bytes: bytes) -> str:
-        """Upload slide image to Supabase; return public URL or local path."""
+        """Upload slide image to Supabase; return public URL."""
+        if self._storage is None:
+            raise RuntimeError(
+                "Supabase Storage not configured — check SUPABASE_URL, SUPABASE_KEY, "
+                "and that the 'media' bucket exists in Supabase Storage"
+            )
         path = f"carousels/{post_id}/slide_{slide_index:02d}.png"
-        if self._storage is not None:
-            return self._storage.upload(path, image_bytes, content_type="image/png")
-        import os
-        import tempfile
-
-        logger.warning(
-            "Supabase Storage not configured — slide %d saved locally; "
-            "image will not be accessible remotely and publish will fail",
-            slide_index,
-        )
-        local_path = os.path.join(tempfile.gettempdir(), path.replace("/", "_"))
-        with open(local_path, "wb") as fh:
-            fh.write(image_bytes)
-        return local_path
+        return self._storage.upload(path, image_bytes, content_type="image/png")
 
     @staticmethod
     def _build_caption(plan: CarouselPlan) -> str:

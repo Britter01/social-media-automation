@@ -397,7 +397,13 @@ def run_image_refresh() -> str | None:
             # was saved as 'standard' (e.g. an older single-image row) or
             # 'carousel'. These are rebuilt as 4-slide text carousels, never as
             # single-image posts.
-            return (
+            #
+            # Two queries are needed: (a) thumbnail_url IS NULL — the normal
+            # failed case; (b) thumbnail_url does NOT start with 'http' — posts
+            # that were previously saved with a local /tmp/ path because Supabase
+            # was temporarily unconfigured. NULL rows are excluded from query (b)
+            # automatically because NOT LIKE on NULL returns NULL (falsy) in SQL.
+            null_rows = (
                 sb.table("posts")
                 .select("*")
                 .in_("platform", _carousel_pf)
@@ -407,6 +413,18 @@ def run_image_refresh() -> str | None:
                 .data
                 or []
             )
+            local_rows = (
+                sb.table("posts")
+                .select("*")
+                .in_("platform", _carousel_pf)
+                .eq("status", status)
+                .not_.like("thumbnail_url", "http%")
+                .execute()
+                .data
+                or []
+            )
+            seen = {r["id"] for r in null_rows}
+            return null_rows + [r for r in local_rows if r["id"] not in seen]
 
         def _standard_rows(status: str) -> list:
             # Single-image platforms only (Twitter/LinkedIn/YouTube/TikTok).
