@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*git push*)",
+            "statusMessage": "Checking formatting before push...",
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); echo \"$cmd\" | grep -q 'git push' || exit 0; cd \"${CLAUDE_PROJECT_DIR:-/home/user/social-media-bot}\" || exit 0; if ! ruff format --check . ; then echo 'Push blocked: ruff format check failed. Run `ruff format .` then retry.' >&2; exit 2; fi; if ! ruff check . ; then echo 'Push blocked: ruff lint check failed. Run `ruff check --fix .` then retry.' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
