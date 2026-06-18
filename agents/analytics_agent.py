@@ -59,6 +59,9 @@ class AnalyticsAgent:
         # the row, but we surface them so a "likes but no views" case isn't
         # silently invisible.
         self._warnings: list[str] = []
+        # LinkedIn personal-profile detection — only emit the "no analytics API"
+        # error once per run, not once per post (avoids x24 noise in the summary).
+        self._linkedin_no_org_logged = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -141,7 +144,32 @@ class AnalyticsAgent:
                 self._last_error = None
                 metrics = self.fetch_metrics(post_id, platform, platform_post_id, "7d")
                 if not self._record(post_id, platform, metrics):
-                    logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
+                    # Permanently invalid post IDs (e.g. "does not exist" from the
+                    # Graph API) would be retried on every backfill run forever.
+                    # Tombstone them with an all-null row so they drop out of the
+                    # no-analytics queue without polluting real metric totals.
+                    err = self._last_error or ""
+                    _permanent = (
+                        "does not exist" in err
+                        or "missing permissions" in err
+                        or "does not support this operation" in err
+                    )
+                    if _permanent:
+                        logger.info(
+                            "Backfill: tombstoning permanently-invalid post %s (%s): %s",
+                            post_id[:8],
+                            platform,
+                            err[:120],
+                        )
+                        self._upsert(
+                            post_id,
+                            platform,
+                            platform_post_id,
+                            "7d",
+                            {"raw_data": {"tombstone": True, "error": err[:400]}},
+                        )
+                    else:
+                        logger.debug("Backfill: no metrics for post %s (%s)", post_id[:8], platform)
                     continue
                 self._upsert(post_id, platform, platform_post_id, "7d", metrics)
                 count += 1
@@ -533,11 +561,20 @@ class AnalyticsAgent:
         # person) is a personal profile with no analytics API.
         org_urn = self._cfg.linkedin_author_urn or ""
         if "urn:li:organization" not in org_urn:
-            self._last_error = (
-                "LinkedIn: personal-profile post analytics are not available via the API "
-                "(only company pages expose stats; r_member_social is no longer granted)"
-            )
-            logger.debug("LinkedIn personal profile — no analytics API; skipping")
+            if not self._linkedin_no_org_logged:
+                # Emit this configuration fact only once per agent run so it
+                # appears as (x1) in the summary rather than (x24).
+                self._last_error = (
+                    "LinkedIn: personal-profile post analytics are not available via the API "
+                    "(only company pages expose stats; r_member_social is no longer granted)"
+                )
+                self._linkedin_no_org_logged = True
+                logger.info(
+                    "LinkedIn personal profile — analytics API unavailable; "
+                    "skipping all LinkedIn posts"
+                )
+            else:
+                self._last_error = None  # already counted; don't re-add to _errors
             return None
 
         try:
