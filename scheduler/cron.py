@@ -81,9 +81,14 @@ def run_content_pipeline() -> str:
     # scheduled AFTER everything that's already there, not on top of it.
     last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
 
+    # Ensure posts_per_run covers at least one post per configured platform so
+    # every platform gets a turn every pipeline run (not just the first one in
+    # the round-robin). posts_per_run=0 means "process all pairings".
+    _limit = max(config.posts_per_run, len(platforms)) if config.posts_per_run else len(pairings)
+
     created = 0
     no_image = 0
-    for pillar, platform in pairings[: config.posts_per_run] or pairings:
+    for pillar, platform in pairings[:_limit]:
         post = Post(pillar=pillar, platform=platform)
         try:
             db.insert(post)

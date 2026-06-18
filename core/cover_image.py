@@ -45,21 +45,28 @@ _SCENE_FILES = [
 # These replace runtime detection for the four known scenes, giving exact perspective
 # warping without being sensitive to lighting variations or threshold tuning.
 _SCENE_CORNERS: dict[str, tuple[bool, list[tuple[int, int]]]] = {
+    # Corners stored in original image pixel coordinates: [TL, TR, BR, BL].
+    # Portrait scenes (1744×2336) → cropped to 1744×1744 → resized 1080×1080:
+    #   scale ≈ 0.619×, so 10 original px ≈ 6 output px.
+    # Scene 3 (2048×2048 square) → resized directly to 1080×1080:
+    #   scale ≈ 0.527×, so 12 original px ≈ 6 output px.
+    # All four corners pulled inward by those amounts on 2026-06-18 to remove
+    # a ~6 px overhang visible on each edge of the rendered card.
     "scene1_library.png": (
         False,
-        [(320, 884), (1113, 848), (1163, 1408), (380, 1491)],
+        [(330, 894), (1103, 858), (1153, 1398), (390, 1481)],
     ),
     "scene2_cafe_iced.png": (
         False,
-        [(383, 1014), (1184, 1011), (1192, 1617), (390, 1638)],
+        [(393, 1024), (1174, 1021), (1182, 1607), (400, 1628)],
     ),
     "scene3_woman.png": (
         True,
-        [(1276, 945), (1907, 960), (1816, 1465), (1177, 1378)],
+        [(1288, 957), (1895, 972), (1804, 1453), (1189, 1366)],
     ),
     "scene4_cafe_latte.png": (
         False,
-        [(153, 720), (1038, 656), (1098, 1243), (221, 1371)],
+        [(163, 730), (1028, 666), (1088, 1233), (231, 1361)],
     ),
 }
 
