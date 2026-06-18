@@ -47,7 +47,7 @@ _SCENE_FILES = [
 _SCENE_CORNERS: dict[str, tuple[bool, list[tuple[int, int]]]] = {
     "scene1_library.png": (
         False,
-        [(410, 902), (1107, 851), (1150, 1390), (418, 1440)],
+        [(320, 884), (1113, 848), (1163, 1408), (380, 1491)],
     ),
     "scene2_cafe_iced.png": (
         False,
