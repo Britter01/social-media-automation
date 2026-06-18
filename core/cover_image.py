@@ -177,10 +177,10 @@ def _detect_screen(pil_img):
         d_sum = xs_r.astype(np.float64) + ys_r  # min → TL, max → BR
         d_dif = ys_r.astype(np.float64) - xs_r  # min → TR, max → BL
 
-        def _corner(score, pct):
+        def _corner(score, pct, _xs=xs_r, _ys=ys_r):
             thresh = np.percentile(score, pct)
             m = (score <= thresh) if pct < 50 else (score >= thresh)
-            return (float(np.mean(xs_r[m])), float(np.mean(ys_r[m])))
+            return (float(np.mean(_xs[m])), float(np.mean(_ys[m])))
 
         tl = _corner(d_sum, 5)
         tr = _corner(d_dif, 5)
@@ -370,7 +370,10 @@ def make_scene_cover(
     else:
         corners, is_white = _detect_screen(scene)
         if corners is None:
-            logger.info("Screen not detected in %s; skipping scene cover", os.path.basename(scene_path))
+            logger.info(
+                "Screen not detected in %s; skipping scene cover",
+                os.path.basename(scene_path),
+            )
             return None
 
     tl, tr, br, bl = corners
