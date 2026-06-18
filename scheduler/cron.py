@@ -105,10 +105,14 @@ def run_content_pipeline() -> str:
             last_slot[platform] = post.scheduled_time
             db.upsert(post)
             created += 1
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed building post for %s/%s", pillar, platform)
             try:
-                db.update_status(post, PostStatus.FAILED, error="pipeline error")
+                db.update_status(
+                    post,
+                    PostStatus.FAILED,
+                    error=f"{type(exc).__name__}: {exc}"[:400],
+                )
             except Exception:
                 logger.exception("Could not persist failure for post %s", post.id)
 
@@ -253,10 +257,14 @@ def _finalise_posts(
                 db.upsert(post)
             scheduled += 1
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed finalising post %s", post.id)
             try:
-                db.update_status(post, PostStatus.FAILED, error="finalise error")
+                db.update_status(
+                    post,
+                    PostStatus.FAILED,
+                    error=f"{type(exc).__name__}: {exc}"[:400],
+                )
             except Exception:
                 logger.exception("Could not persist failure for post %s", post.id)
 
@@ -356,7 +364,7 @@ def _generate_media(post: Post, thumbnail_agent, video_agent, quality_agent=None
             logger.exception("Video generation failed for post %s", post.id)
 
 
-def run_image_refresh() -> None:
+def run_image_refresh() -> str | None:
     """Regenerate thumbnails and carousel slides that are missing the brand overlay.
 
     Runs nightly at 02:00 — after the Imagen quota resets (midnight UTC) —
@@ -497,9 +505,17 @@ def run_image_refresh() -> None:
                             "Failed refreshing thumbnail for post %s", p.get("id", "?")[:8]
                         )
 
-        logger.info("=== Image refresh finished: %d asset(s) updated ===", refreshed)
-    except Exception:
+        parts = [f"refreshed {refreshed} asset(s)"]
+        if carousel_agent is None:
+            parts.append("carousel agent unavailable — check ANTHROPIC_API_KEY in Railway")
+        if thumbnail_agent is None:
+            parts.append("thumbnail agent unavailable — check GOOGLE_API_KEY in Railway")
+        summary = " — ".join(parts)
+        logger.info("=== Image refresh finished: %s ===", summary)
+        return summary
+    except Exception as exc:
         logger.exception("Image refresh could not initialise; skipping run")
+        return f"image refresh failed to initialise: {type(exc).__name__}: {exc}"[:400]
 
 
 def run_publisher() -> None:
@@ -936,11 +952,11 @@ def run_pending_commands() -> None:
         result_msg: str | None = None
         try:
             if command == "image_refresh":
-                run_image_refresh()
+                result_msg = run_image_refresh()
             elif command == "publish":
                 run_publisher()
             elif command == "all":
-                run_image_refresh()
+                result_msg = run_image_refresh()
                 run_publisher()
             elif command == "content":
                 result_msg = run_content_pipeline()
