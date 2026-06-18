@@ -59,7 +59,7 @@ def _make_scene_cover(carousel_id: str, slide: dict, cfg) -> bytes | None:
             brand_tagline=cfg.brand_tagline,
         )
     except Exception:
-        logger.debug("Scene cover unavailable", exc_info=True)
+        logger.warning("Scene cover failed; falling back to dark text card", exc_info=True)
         return None
 
 
@@ -282,6 +282,19 @@ class CarouselAgent:
             except Exception:
                 logger.exception("Failed rendering slide %d of post %s", i, post.id)
 
+        if not result:
+            logger.error(
+                "All %d slides failed to render for post %s — carousel will be empty",
+                len(all_slides),
+                post.id,
+            )
+        elif len(result) < len(all_slides):
+            logger.warning(
+                "%d/%d slides rendered for post %s — carousel may be incomplete",
+                len(result),
+                len(all_slides),
+                post.id,
+            )
         return result
 
     def _upload(self, post_id: str, slide_index: int, image_bytes: bytes) -> str:
@@ -292,6 +305,11 @@ class CarouselAgent:
         import os
         import tempfile
 
+        logger.warning(
+            "Supabase Storage not configured — slide %d saved locally; "
+            "image will not be accessible remotely and publish will fail",
+            slide_index,
+        )
         local_path = os.path.join(tempfile.gettempdir(), path.replace("/", "_"))
         with open(local_path, "wb") as fh:
             fh.write(image_bytes)

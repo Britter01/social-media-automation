@@ -322,6 +322,10 @@ def add_brand_overlay(
         logger.warning("Pillow not installed; skipping brand overlay")
         return image_bytes
 
+    if not image_bytes:
+        logger.error("add_brand_overlay received empty image_bytes; returning as-is")
+        return image_bytes
+
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = img.size
 
