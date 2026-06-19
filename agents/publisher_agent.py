@@ -183,7 +183,7 @@ class PublisherAgent:
 
     def _publish_instagram(self, post: Post) -> str:
         self._cfg.require("instagram_access_token", "instagram_business_account_id")
-        if post.post_type == "reel":
+        if post.post_type in ("reel", "infographic_reel"):
             return self._publish_instagram_reel(post)
         if post.post_type == "carousel" and post.slides:
             if len(post.slides) < 2:
@@ -362,7 +362,7 @@ class PublisherAgent:
 
     def _publish_facebook(self, post: Post) -> str:
         self._cfg.require("facebook_page_id", "instagram_access_token")
-        if post.post_type == "reel":
+        if post.post_type in ("reel", "infographic_reel"):
             return self._publish_facebook_reel(post)
         if post.post_type == "carousel" and post.slides:
             if len(post.slides) < 2:

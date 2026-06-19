@@ -967,7 +967,8 @@ def _post_card(
     post: dict, time_str: str = "", time_label: str = "", analytics: dict | None = None
 ) -> None:
     is_carousel = post.get("post_type") == "carousel"
-    is_reel = post.get("post_type") == "reel"
+    is_reel = post.get("post_type") in ("reel", "infographic_reel")
+    is_infographic = post.get("post_type") == "infographic_reel"
     slides = post.get("slides") or []
     video_url = post.get("video_url", "")
     platform = post.get("platform", "")
@@ -998,7 +999,11 @@ def _post_card(
         )
 
     pills = _pill(platform, plat_color) + " "
-    if is_reel:
+    if is_infographic:
+        pills += (
+            f"<span style='color:{SLATE};font-size:11px;font-weight:600'>📊 Infographic</span> "
+        )
+    elif is_reel:
         pills += f"<span style='color:{SLATE};font-size:11px;font-weight:600'>🎬 Reel</span> "
     if is_carousel:
         pills += (
@@ -1256,7 +1261,7 @@ with tab_scheduled:
         # Content-type filter pills
         _type_filter = st.radio(
             "Filter by type",
-            options=["All", "Carousel", "Reel", "Standard"],
+            options=["All", "Carousel", "Reel", "Infographic", "Standard"],
             index=0,
             horizontal=True,
             label_visibility="collapsed",
@@ -1266,9 +1271,13 @@ with tab_scheduled:
             sched_sorted = [p for p in sched_sorted if p.get("post_type") == "carousel"]
         elif _type_filter == "Reel":
             sched_sorted = [p for p in sched_sorted if p.get("post_type") == "reel"]
+        elif _type_filter == "Infographic":
+            sched_sorted = [p for p in sched_sorted if p.get("post_type") == "infographic_reel"]
         elif _type_filter == "Standard":
             sched_sorted = [
-                p for p in sched_sorted if p.get("post_type") not in ("carousel", "reel")
+                p
+                for p in sched_sorted
+                if p.get("post_type") not in ("carousel", "reel", "infographic_reel")
             ]
 
         if not sched_sorted:
