@@ -151,15 +151,20 @@ class PublisherAgent:
 
     @staticmethod
     def _await_instagram_container(
-        client: httpx.Client, container_id: str, token: str, label: str = "container"
+        client: httpx.Client,
+        container_id: str,
+        token: str,
+        label: str = "container",
+        max_attempts: int = 10,
+        max_sleep: int = 16,
     ) -> None:
         """Poll until the Instagram media container is FINISHED (or raise on ERROR/timeout).
 
-        Uses exponential backoff (1 s, 2 s, 4 s … capped at 16 s) instead of
-        a fixed 3-second interval — containers are usually ready in < 5 s so
-        this cuts wasted API calls by ~60% while still handling slow processing.
+        Uses exponential backoff (1 s, 2 s, 4 s … capped at max_sleep) instead
+        of a fixed interval. Images are usually ready in < 5 s; videos (Reels)
+        can take up to 90 s, so callers should pass max_attempts=20, max_sleep=30.
         """
-        for attempt in range(10):
+        for attempt in range(max_attempts):
             resp = client.get(
                 f"https://graph.facebook.com/v22.0/{container_id}",
                 params={"fields": "status_code,status", "access_token": token},
@@ -172,11 +177,13 @@ class PublisherAgent:
             if status == "ERROR":
                 detail = data.get("status", "no detail returned")
                 raise PublishError(f"Instagram {label} entered ERROR state: {detail}")
-            time.sleep(min(2**attempt, 16))
+            time.sleep(min(2**attempt, max_sleep))
         raise PublishError(f"Instagram {label} did not reach FINISHED status after timeout")
 
     def _publish_instagram(self, post: Post) -> str:
         self._cfg.require("instagram_access_token", "instagram_business_account_id")
+        if post.post_type == "reel":
+            return self._publish_instagram_reel(post)
         if post.post_type == "carousel" and post.slides:
             if len(post.slides) < 2:
                 raise PublishError(
@@ -277,6 +284,51 @@ class PublisherAgent:
             publish.raise_for_status()
             return publish.json().get("id", carousel_id)
 
+    def _publish_instagram_reel(self, post: Post) -> str:
+        """Publish a Reel to Instagram using the REELS container flow."""
+        if not post.video_url:
+            raise PublishError("Instagram Reel requires a video (video_url)")
+        _validate_media_url(post.video_url, label="video_url")
+
+        account = self._cfg.instagram_business_account_id
+        token = self._cfg.instagram_access_token
+        base = f"https://graph.facebook.com/v22.0/{account}"
+
+        with httpx.Client(timeout=120.0) as client:
+            # 1. Create the Reels container (Instagram fetches the video from the URL).
+            create = client.post(
+                f"{base}/media",
+                data={
+                    "media_type": "REELS",
+                    "video_url": post.video_url,
+                    "caption": post.caption_with_hashtags,
+                    "share_to_feed": "true",
+                    "access_token": token,
+                },
+            )
+            create.raise_for_status()
+            container_id = create.json().get("id")
+            if not container_id:
+                raise PublishError("Instagram did not return a Reels container id")
+
+            # 2. Wait — video processing takes longer than images.
+            self._await_instagram_container(
+                client,
+                container_id,
+                token,
+                label="reel",
+                max_attempts=20,
+                max_sleep=30,
+            )
+
+            # 3. Publish.
+            publish = client.post(
+                f"{base}/media_publish",
+                data={"creation_id": container_id, "access_token": token},
+            )
+            publish.raise_for_status()
+            return publish.json().get("id", container_id)
+
     # --- Facebook Pages (Graph API) -------------------------------------
 
     def _facebook_page_token(self, client: httpx.Client) -> str:
@@ -309,6 +361,8 @@ class PublisherAgent:
 
     def _publish_facebook(self, post: Post) -> str:
         self._cfg.require("facebook_page_id", "instagram_access_token")
+        if post.post_type == "reel":
+            return self._publish_facebook_reel(post)
         if post.post_type == "carousel" and post.slides:
             if len(post.slides) < 2:
                 raise PublishError(
@@ -389,6 +443,75 @@ class PublisherAgent:
             )
             resp.raise_for_status()
             return resp.json().get("id", "")
+
+    def _publish_facebook_reel(self, post: Post) -> str:
+        """Publish a Reel to a Facebook Page via the video_reels endpoint.
+
+        Flow: (1) initialize an upload session to get a video_id + upload_url,
+        (2) download the MP4 locally and POST the raw bytes to the rupload URL,
+        (3) call finish to publish.  Bytes-upload avoids Facebook having to
+        re-fetch the file from Supabase through its own crawler (which can fail
+        if the URL is not yet warm in the CDN).
+        """
+        if not post.video_url:
+            raise PublishError("Facebook Reel requires a video (video_url)")
+        _validate_media_url(post.video_url, label="video_url")
+
+        page_id = self._cfg.facebook_page_id
+        base = f"https://graph.facebook.com/v22.0/{page_id}"
+
+        local_path: str | None = None
+        try:
+            local_path = self._download_to_temp(post.video_url, post.id)
+            file_size = os.path.getsize(local_path)
+
+            with httpx.Client(timeout=120.0) as client:
+                token = self._facebook_page_token(client)
+
+                # 1. Initialize upload session.
+                init = client.post(
+                    f"{base}/video_reels",
+                    params={"upload_phase": "start", "access_token": token},
+                )
+                init.raise_for_status()
+                init_data = init.json()
+                video_id = init_data.get("video_id")
+                upload_url = init_data.get("upload_url")
+                if not video_id or not upload_url:
+                    raise PublishError(
+                        f"Facebook Reels init returned unexpected response: {init_data}"
+                    )
+
+                # 2. Upload raw MP4 bytes to the rupload endpoint.
+                with open(local_path, "rb") as f:
+                    upload = client.post(
+                        upload_url,
+                        headers={
+                            "Authorization": f"OAuth {token}",
+                            "offset": "0",
+                            "file_size": str(file_size),
+                        },
+                        content=f.read(),
+                    )
+                upload.raise_for_status()
+
+                # 3. Publish.
+                finish = client.post(
+                    f"{base}/video_reels",
+                    params={
+                        "upload_phase": "finish",
+                        "video_id": video_id,
+                        "video_state": "PUBLISHED",
+                        "description": post.caption_with_hashtags[:2200],
+                        "access_token": token,
+                    },
+                )
+                finish.raise_for_status()
+                return video_id
+
+        finally:
+            if local_path and os.path.exists(local_path):
+                os.unlink(local_path)
 
     # --- X / Twitter (API v2) -------------------------------------------
 

@@ -115,6 +115,12 @@ class Config:
 
     tiktok_access_token: str | None = None
 
+    # --- Freesound (royalty-free music for Reels) -----------------------
+    # Register at freesound.org (free) and set FREESOUND_API_KEY in Railway.
+    # Used by ReelsAgent to search CC0 tracks matching the content pillar.
+    # Reels are still produced (silently) if this key is absent.
+    freesound_api_key: str | None = None
+
     # --- Runtime behaviour ----------------------------------------------
     timezone: str = "Europe/London"
     dry_run: bool = True  # Safe default — must explicitly set DRY_RUN=false to post live
@@ -211,6 +217,7 @@ class Config:
             youtube_client_secret=_get("YOUTUBE_CLIENT_SECRET"),
             youtube_refresh_token=_get("YOUTUBE_REFRESH_TOKEN"),
             tiktok_access_token=_get("TIKTOK_ACCESS_TOKEN"),
+            freesound_api_key=_get("FREESOUND_API_KEY"),
             timezone=_get("TIMEZONE", "Europe/London"),
             # Safe default — must explicitly set DRY_RUN=false to go live
             dry_run=_get_bool("DRY_RUN", True),
