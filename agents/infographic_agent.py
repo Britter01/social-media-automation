@@ -87,21 +87,21 @@ _ACCENT_PALETTE = [
 
 # Daily topic rotation for the automated run
 _AI_TOPICS = [
-    "AI productivity tools adoption and ROI statistics 2025",
-    "ChatGPT and generative AI business usage statistics 2025",
-    "AI in healthcare: diagnosis accuracy and patient outcome statistics",
-    "Generative AI market size and investment growth 2025",
-    "AI impact on jobs: automation, new roles and salary statistics",
-    "AI in education: student learning outcomes and adoption statistics",
-    "Smart home devices and AI assistant growth statistics 2025",
-    "AI coding assistants: developer productivity statistics 2025",
-    "AI customer service: chatbot adoption and satisfaction statistics",
-    "AI cybersecurity: threat detection and breach prevention statistics",
-    "Wearable tech and AI fitness tracking statistics 2025",
-    "AI content creation: usage and engagement statistics",
-    "Self-driving and autonomous vehicle technology statistics 2025",
-    "AI in finance: fraud detection and trading statistics 2025",
-    "Remote work tech and AI collaboration tools statistics 2025",
+    "AI productivity tools adoption and ROI statistics 2026",
+    "ChatGPT and generative AI business usage statistics 2026",
+    "AI in healthcare: diagnosis accuracy and patient outcome statistics 2026",
+    "Generative AI market size and investment growth 2026",
+    "AI impact on jobs: automation, new roles and salary statistics 2026",
+    "AI in education: student learning outcomes and adoption statistics 2026",
+    "Smart home devices and AI assistant growth statistics 2026",
+    "AI coding assistants: developer productivity statistics 2026",
+    "AI customer service: chatbot adoption and satisfaction statistics 2026",
+    "AI cybersecurity: threat detection and breach prevention statistics 2026",
+    "Wearable tech and AI fitness tracking statistics 2026",
+    "AI content creation: usage and engagement statistics 2026",
+    "Self-driving and autonomous vehicle technology statistics 2026",
+    "AI in finance: fraud detection and trading statistics 2026",
+    "Remote work tech and AI collaboration tools statistics 2026",
 ]
 
 _GRAPH = "https://platform.higgsfield.ai"
@@ -126,7 +126,7 @@ class _StatCard(BaseModel):
     stat: str = Field(description="Key metric — e.g. '73%' or '$4.4T' or '1 in 3'. Max 8 chars.")
     headline: str = Field(description="What the stat means — max 7 words, punchy")
     context: str = Field(description="One line of extra context — max 12 words")
-    source: str = Field(description="Source attribution — max 5 words, e.g. 'McKinsey 2025'")
+    source: str = Field(description="Source attribution — max 5 words, e.g. 'McKinsey 2026'")
 
 
 class _InfographicPlan(BaseModel):
@@ -243,7 +243,7 @@ class InfographicAgent:
                 "role": "user",
                 "content": (
                     f"Search for the latest statistics and facts about: {topic}. "
-                    "I need 5-8 specific, surprising, verified numbers from 2024-2025 "
+                    "I need 5-8 specific, surprising, verified numbers from 2025-2026 "
                     "(percentages, dollar values, growth rates, time savings, adoption figures). "
                     "Include the source name and year for each stat. "
                     "Focus on facts that would make a non-technical person say 'wow'."
