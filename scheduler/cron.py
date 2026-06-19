@@ -1009,6 +1009,20 @@ def run_diagnostics() -> str:
 
     parts.append("reels: " + "; ".join(reel_parts))
 
+    # 3f. Meta token status — which source is in use (env vs auto-refreshed) and
+    # how many days of life the long-lived token has left. Surfaces an expiry
+    # countdown so the 60-day token never lapses unnoticed.
+    try:
+        from core.meta_token import token_info as _ti
+
+        _info = _ti(config)
+        _auto = "yes" if (config.facebook_app_id and config.facebook_app_secret) else "no"
+        _days = _info.get("days_left")
+        _days_str = f"{_days}d left" if _days is not None else "expiry unknown"
+        parts.append(f"meta token: source={_info.get('source')}, {_days_str}, auto-refresh={_auto}")
+    except Exception as exc:
+        parts.append(f"meta token check error: {str(exc)[:80]}")
+
     # 4. Posts-table schema + what recent posts ACTUALLY saved. Selecting
     # post_type/slides also proves those columns exist — if they don't, every
     # carousel save silently fails and this read errors with the column name.
@@ -1211,6 +1225,8 @@ def run_pending_commands() -> None:
                 result_msg = run_analytics()
             elif command == "diagnostics":
                 result_msg = run_diagnostics()
+            elif command == "refresh_token":
+                result_msg = run_token_refresh()
             else:
                 error = f"Unknown command: {command}"
                 logger.warning("Command queue: %s", error)
@@ -1254,6 +1270,32 @@ def run_cleanup_commands() -> None:
             logger.info("Cleanup: deleted %d old pipeline_commands row(s)", deleted)
     except Exception:
         logger.exception("Cleanup: failed to prune pipeline_commands")
+
+
+def run_token_refresh() -> str:
+    """Refresh the Meta long-lived user token before its ~60-day expiry.
+
+    Re-exchanges the current token for a fresh one and stores it in Supabase so
+    the publisher/analytics pick it up without a redeploy. Skips the network
+    call while the token still has comfortable headroom. Safe to run weekly.
+    """
+    from core.meta_token import refresh_user_token, token_info
+
+    logger.info("=== Meta token refresh starting ===")
+    try:
+        changed, msg = refresh_user_token(config)
+    except Exception as exc:
+        logger.exception("Meta token refresh failed")
+        return f"token refresh failed: {type(exc).__name__}: {exc}"[:300]
+
+    info = token_info(config)
+    days_left = info.get("days_left")
+    if days_left is not None and days_left <= 14 and not changed:
+        logger.warning(
+            "Meta token has only %s day(s) left and was not refreshed: %s", days_left, msg
+        )
+    logger.info("=== Meta token refresh: %s ===", msg)
+    return msg
 
 
 def run_weekly_strategy() -> None:
@@ -1400,6 +1442,17 @@ def build_scheduler():
         run_weekly_strategy,
         trigger=CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=config.timezone),
         id="weekly_strategy",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Refresh the Meta long-lived token weekly, well before its ~60-day expiry.
+    # The job itself no-ops while the token still has plenty of headroom.
+    scheduler.add_job(
+        run_token_refresh,
+        trigger=CronTrigger(day_of_week="sun", hour=4, minute=0, timezone=config.timezone),
+        id="token_refresh",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,

@@ -745,6 +745,36 @@ def _render_pipeline_controls(scope: str) -> None:
         elif _diag_msg:
             st.caption(f"🩺 Last system check failed: {_diag_msg}")
 
+    if st.button(
+        "🔑  Refresh Meta Token",
+        use_container_width=True,
+        help=(
+            "Re-exchanges the Facebook/Instagram long-lived token for a fresh "
+            "~60-day one and stores it so publishing keeps working without a "
+            "redeploy. Runs automatically every Sunday; use this to force it. "
+            "Requires FACEBOOK_APP_ID and FACEBOOK_APP_SECRET in Railway."
+        ),
+        key=f"{scope}_refresh_token",
+    ):
+        try:
+            _queue_command("refresh_token", cooldown_key="refresh_token")
+            st.info("Token refresh queued — the result appears below within ~2 min.")
+        except RuntimeError:
+            pass
+        except Exception:
+            st.error("Failed to queue token refresh.")
+
+    _tok = load_last_command_status(db, "refresh_token")
+    if _tok:
+        _tok_status = _tok.get("status", "")
+        _tok_msg = _tok.get("error") or ""
+        if _tok_status == "done" and _tok_msg:
+            st.caption(f"🔑 Last token refresh: {_tok_msg}")
+        elif _tok_status in ("pending", "running"):
+            st.caption("🔑 Token refresh running…")
+        elif _tok_msg:
+            st.caption(f"🔑 Last token refresh failed: {_tok_msg}")
+
     if st.button("↺  Refresh data now", use_container_width=True, key=f"{scope}_refresh"):
         st.cache_data.clear()
         st.rerun()

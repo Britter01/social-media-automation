@@ -37,6 +37,7 @@ from urllib.parse import urlparse
 import httpx
 
 from core.config import Config, config
+from core.meta_token import get_user_token
 from core.models import Platform, Post, PostStatus
 
 # ---------------------------------------------------------------------------
@@ -196,7 +197,7 @@ class PublisherAgent:
         _validate_media_url(post.thumbnail_url, label="thumbnail_url")
 
         account = self._cfg.instagram_business_account_id
-        token = self._cfg.instagram_access_token
+        token = get_user_token(self._cfg)
         base = f"https://graph.facebook.com/v22.0/{account}"
 
         with httpx.Client(timeout=60.0) as client:
@@ -228,7 +229,7 @@ class PublisherAgent:
     def _publish_instagram_carousel(self, post: Post) -> str:
         """Publish a carousel post via the Instagram Graph API (3-step flow)."""
         account = self._cfg.instagram_business_account_id
-        token = self._cfg.instagram_access_token
+        token = get_user_token(self._cfg)
         base = f"https://graph.facebook.com/v22.0/{account}"
 
         with httpx.Client(timeout=120.0) as client:
@@ -291,7 +292,7 @@ class PublisherAgent:
         _validate_media_url(post.video_url, label="video_url")
 
         account = self._cfg.instagram_business_account_id
-        token = self._cfg.instagram_access_token
+        token = get_user_token(self._cfg)
         base = f"https://graph.facebook.com/v22.0/{account}"
 
         with httpx.Client(timeout=120.0) as client:
@@ -346,7 +347,7 @@ class PublisherAgent:
 
         resp = client.get(
             f"https://graph.facebook.com/v22.0/{self._cfg.facebook_page_id}",
-            params={"fields": "access_token", "access_token": self._cfg.instagram_access_token},
+            params={"fields": "access_token", "access_token": get_user_token(self._cfg)},
         )
         resp.raise_for_status()
         page_token = resp.json().get("access_token")

@@ -28,6 +28,7 @@ from typing import Any
 import requests
 
 from core.config import Config, config
+from core.meta_token import get_user_token
 
 logger = logging.getLogger(__name__)
 
@@ -337,7 +338,7 @@ class AnalyticsAgent:
         insights call fails, the like/comment counts from step 1 are still
         returned — so something always shows up.
         """
-        token = self._cfg.instagram_access_token
+        token = get_user_token(self._cfg)
         if not token:
             logger.debug("Instagram access token not set; skipping")
             return None
@@ -464,7 +465,7 @@ class AnalyticsAgent:
         explicit FACEBOOK_PAGE_ACCESS_TOKEN is not configured — mirroring how
         the publisher obtains its token.
         """
-        user_token = self._cfg.instagram_access_token
+        user_token = get_user_token(self._cfg)
         token = self._cfg.facebook_page_access_token
         _using_user_token = False
         if not token:
