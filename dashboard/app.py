@@ -844,6 +844,15 @@ PLATFORM_COLORS = {
     "youtube": "#FF0000",
 }
 
+PLATFORM_ABBR = {
+    "instagram": "IG",
+    "facebook": "FB",
+    "twitter": "TW",
+    "linkedin": "LI",
+    "tiktok": "TK",
+    "youtube": "YT",
+}
+
 
 def _pill(text: str, color: str, bg_alpha: str = "18") -> str:
     e = html.escape(str(text))
@@ -1248,28 +1257,25 @@ with tab_calendar:
             day_posts = date_posts.get(d, [])
             border = f"2px solid {ACCENT}" if is_today else f"1px solid {SMOKE}"
             num_color = ACCENT if is_today else CHARCOAL
-            dots = ""
-            for p in day_posts[:8]:
+            pills = ""
+            for p in day_posts:
                 plat = (p.get("platform") or "").lower()
                 c = PLATFORM_COLORS.get(plat, SLATE)
+                abbr = PLATFORM_ABBR.get(plat, plat[:2].upper())
                 t = html.escape(str(p.get("topic", "")))
-                dots += (
-                    f'<div style="width:10px;height:10px;border-radius:50%;'
-                    f'background:{c};flex-shrink:0" title="{t}"></div>'
+                pills += (
+                    f'<div style="background:{c};color:#fff;font-size:9px;font-weight:700;'
+                    f"padding:2px 5px;border-radius:8px;white-space:nowrap;"
+                    f'line-height:1.4;flex-shrink:0" title="{t}">{abbr}</div>'
                 )
-            count_html = (
-                f'<div style="font-size:10px;font-weight:700;color:{ACCENT};margin-top:4px">'
-                f"{len(day_posts)}</div>"
-                if day_posts
-                else ""
-            )
             cells_html += (
                 f'<div style="background:{WHITE};border:{border};border-radius:12px;'
-                f'min-height:80px;padding:8px">'
+                f'min-height:90px;padding:8px;display:flex;flex-direction:column">'
                 f'<div style="font-size:13px;font-weight:700;color:{num_color};margin-bottom:4px">'
                 f"{day_num}</div>"
-                f'<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:2px">{dots}</div>'
-                f"{count_html}</div>"
+                f'<div style="display:flex;flex-wrap:wrap;gap:3px;overflow-y:auto;max-height:68px">'
+                f"{pills}</div>"
+                f"</div>"
             )
 
     cal_html = (
@@ -1282,13 +1288,14 @@ with tab_calendar:
         f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px">'
         f"{header_html}{cells_html}</div></body></html>"
     )
-    components.html(cal_html, height=len(cal) * 93 + 48, scrolling=False)
+    components.html(cal_html, height=len(cal) * 110 + 48, scrolling=False)
 
     legend = " &nbsp; ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;'
         f'font-size:12px;color:{SLATE}">'
-        f'<span style="width:10px;height:10px;border-radius:50%;background:{c};'
-        f'display:inline-block"></span>{p.title()}</span>'
+        f'<span style="background:{c};color:#fff;font-size:9px;font-weight:700;'
+        f'padding:2px 5px;border-radius:8px">{PLATFORM_ABBR.get(p, p[:2].upper())}</span>'
+        f"{p.title()}</span>"
         for p, c in PLATFORM_COLORS.items()
     )
     st.markdown(f"<div style='margin-top:10px'>{legend}</div>", unsafe_allow_html=True)
