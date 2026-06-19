@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import subprocess
 import tempfile
 
 import httpx
@@ -183,6 +184,7 @@ class ReelsAgent:
         video = concatenate_videoclips(clips, padding=-CROSSFADE_DUR, method="compose")
 
         out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4", prefix="reel_silent_")
+        out.close()  # close before moviepy opens the same path via ffmpeg
         video.write_videofile(
             out.name,
             fps=FPS,
@@ -195,33 +197,63 @@ class ReelsAgent:
         return out.name
 
     def _mix_audio(self, video_path: str, music_path: str, post_id: str) -> str:
-        """Mix background music into the silent slideshow at reduced volume."""
-        from moviepy.audio.fx.all import audio_loop
-        from moviepy.editor import AudioFileClip, VideoFileClip
+        """Mix background music into the silent video using ffmpeg directly.
 
-        video = VideoFileClip(video_path)
-        duration = video.duration
-
-        raw_audio = AudioFileClip(music_path)
-        if raw_audio.duration < duration:
-            music = audio_loop(raw_audio, duration=duration).volumex(MUSIC_VOLUME)
-        else:
-            music = raw_audio.subclip(0, duration).volumex(MUSIC_VOLUME)
-
-        video_with_audio = video.set_audio(music)
+        Bypasses moviepy's Python audio layer (which uses audio_loop and
+        produces clicks/static at loop boundaries). ffmpeg's -stream_loop -1
+        loops the music natively with no artefacts, and -shortest trims to the
+        video duration so the output is exactly the right length.
+        """
+        ffmpeg = self._ffmpeg_exe()
 
         out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4", prefix="reel_audio_")
-        video_with_audio.write_videofile(
+        out.close()
+
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",  # loop music indefinitely until video ends
+            "-i",
+            music_path,
+            "-filter_complex",
+            f"[1:a]volume={MUSIC_VOLUME}[a]",
+            "-map",
+            "0:v",
+            "-map",
+            "[a]",
+            "-c:v",
+            "copy",  # copy video stream — no re-encode
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",  # trim to whichever input ends first (the video)
             out.name,
-            fps=FPS,
-            codec="libx264",
-            audio_codec="aac",
-            ffmpeg_params=["-pix_fmt", "yuv420p", "-profile:v", "baseline", "-level", "3.0"],
-            logger=None,
-        )
-        video.close()
-        video_with_audio.close()
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg audio mix failed: {result.stderr.decode(errors='replace')[-400:]}"
+            )
         return out.name
+
+    @staticmethod
+    def _ffmpeg_exe() -> str:
+        """Return the ffmpeg binary (system PATH or imageio-ffmpeg bundle)."""
+        import shutil
+
+        exe = shutil.which("ffmpeg")
+        if exe:
+            return exe
+        try:
+            import imageio_ffmpeg
+
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as exc:
+            raise RuntimeError("ffmpeg not found on PATH or via imageio-ffmpeg") from exc
 
     # ── Music ──────────────────────────────────────────────────────────────────
 
@@ -262,8 +294,22 @@ class ReelsAgent:
             mp3 = httpx.get(preview_url, timeout=30.0, follow_redirects=True)
             mp3.raise_for_status()
 
+            content = mp3.content
+            # Validate it's actually audio (MP3 starts with ID3 tag or 0xFF 0xFB/FA/F3/F2
+            # sync bytes). Freesound occasionally returns an HTML error page when the
+            # token lacks preview permissions — saving that as .mp3 produces static.
+            if not (
+                content[:3] == b"ID3"
+                or (len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0)
+            ):
+                logger.warning(
+                    "ReelsAgent: Freesound preview is not valid MP3 (first bytes: %s); skipping",
+                    content[:16].hex(),
+                )
+                return None
+
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", prefix="reel_music_")
-            tmp.write(mp3.content)
+            tmp.write(content)
             tmp.close()
             logger.info("ReelsAgent: downloaded music track %r", track.get("name"))
             return tmp.name
