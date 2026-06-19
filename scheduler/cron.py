@@ -925,6 +925,79 @@ def run_diagnostics() -> str:
 
     parts.append("; ".join(media_parts))
 
+    # 3e. Reels self-check — the most common reason no Reels appear is that
+    # video rendering fails silently on the worker (ReelsAgent swallows all
+    # errors and returns None). This exercises the real render path: moviepy
+    # import, ffmpeg availability, and an actual 2-frame MP4 write — so the
+    # System Check shows whether Reels CAN be produced at all.
+    reel_parts: list[str] = []
+
+    # moviepy import (pure-Python wrapper around ffmpeg).
+    try:
+        import moviepy.editor as _mpy  # noqa: F401
+
+        reel_parts.append("moviepy OK")
+    except Exception as exc:
+        reel_parts.append(f"moviepy FAILED ({str(exc)[:90]})")
+
+    # ffmpeg binary on PATH — moviepy shells out to it for every write.
+    import shutil as _shutil
+
+    _ffmpeg = _shutil.which("ffmpeg")
+    reel_parts.append(f"ffmpeg {'OK' if _ffmpeg else 'MISSING (add to nixpacks.toml)'}")
+
+    # Freesound key presence (optional — Reels render silently without it).
+    reel_parts.append(
+        "freesound key set" if config.freesound_api_key else "freesound key absent (music skipped)"
+    )
+
+    # Tiny end-to-end render: 2 solid frames → MP4. Proves the exact
+    # ImageClip → concatenate → write_videofile path the agent uses works.
+    if _ffmpeg:
+        import os as _os
+        import tempfile as _tf
+
+        _tmp_pngs: list[str] = []
+        _tmp_mp4: str | None = None
+        try:
+            from moviepy.editor import ImageClip as _IC
+            from moviepy.editor import concatenate_videoclips as _concat
+            from PIL import Image as _PImage
+
+            for _c in ((20, 20, 30), (40, 40, 60)):
+                _p = _tf.NamedTemporaryFile(delete=False, suffix=".png", prefix="diag_reel_")
+                _PImage.new("RGB", (1080, 1920), _c).save(_p.name)
+                _p.close()
+                _tmp_pngs.append(_p.name)
+
+            _clips = [_IC(_p).set_duration(1.0) for _p in _tmp_pngs]
+            _vid = _concat(_clips, method="compose")
+            _out = _tf.NamedTemporaryFile(delete=False, suffix=".mp4", prefix="diag_reel_")
+            _out.close()
+            _tmp_mp4 = _out.name
+            _vid.write_videofile(
+                _tmp_mp4,
+                fps=24,
+                codec="libx264",
+                audio=False,
+                ffmpeg_params=["-pix_fmt", "yuv420p"],
+                logger=None,
+            )
+            _vid.close()
+            _kb = _os.path.getsize(_tmp_mp4) // 1024
+            reel_parts.append(f"render OK ({_kb}kb mp4)")
+        except Exception as exc:
+            reel_parts.append(f"render FAILED ({str(exc)[:110]})")
+        finally:
+            for _p in [*_tmp_pngs, _tmp_mp4]:
+                try:
+                    if _p and _os.path.exists(_p):
+                        _os.unlink(_p)
+                except OSError:
+                    pass
+
+    parts.append("reels: " + "; ".join(reel_parts))
+
     # 4. Posts-table schema + what recent posts ACTUALLY saved. Selecting
     # post_type/slides also proves those columns exist — if they don't, every
     # carousel save silently fails and this read errors with the column name.
