@@ -887,7 +887,9 @@ def _post_card(
     post: dict, time_str: str = "", time_label: str = "", analytics: dict | None = None
 ) -> None:
     is_carousel = post.get("post_type") == "carousel"
+    is_reel = post.get("post_type") == "reel"
     slides = post.get("slides") or []
+    video_url = post.get("video_url", "")
     platform = post.get("platform", "")
     title = post.get("title") or post.get("topic") or "Untitled"
     pillar = post.get("pillar") or "—"
@@ -901,17 +903,23 @@ def _post_card(
     e_caption = html.escape(str(caption))
 
     url = post.get("thumbnail_url", "")
-    if url:
+    if is_reel and video_url:
+        # Reels carry only a video — show the playable MP4 rather than an image.
+        st.video(video_url)
+    elif url:
         st.image(url if url.endswith(".png") else url + ".png", use_container_width=True)
     else:
+        placeholder = "Rendering video…" if is_reel else "No image yet"
         st.markdown(
             f"<div style='background:{OFF_WHITE};border:1px solid {SMOKE};border-radius:12px;"
             "height:88px;display:flex;align-items:center;justify-content:center;"
-            f"color:{SILVER};font-size:12px'>No image yet</div>",
+            f"color:{SILVER};font-size:12px'>{placeholder}</div>",
             unsafe_allow_html=True,
         )
 
     pills = _pill(platform, plat_color) + " "
+    if is_reel:
+        pills += f"<span style='color:{SLATE};font-size:11px;font-weight:600'>🎬 Reel</span> "
     if is_carousel:
         pills += (
             f"<span style='color:{SLATE};font-size:11px;font-weight:600'>"
