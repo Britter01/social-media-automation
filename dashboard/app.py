@@ -1202,31 +1202,55 @@ with tab_scheduled:
         st.info("Nothing scheduled yet.")
     else:
         sched_sorted = sorted(scheduled, key=lambda p: p.get("scheduled_time") or "")
-        cols = st.columns(3)
-        for i, p in enumerate(sched_sorted):
-            with cols[i % 3]:
-                with st.container(border=True):
-                    _post_card(p, _sched_str(p), "scheduled")
-                    pid = p.get("id", "")
-                    if pid and st.button(
-                        "Publish now",
-                        key=f"pub_{pid}",
-                        use_container_width=True,
-                        type="primary",
-                    ):
-                        db.table("posts").update(
-                            {"scheduled_time": datetime.now(UTC).isoformat()}
-                        ).eq("id", pid).execute()
-                        try:
-                            _queue_command("publish", cooldown_key=f"pub_{pid}")
-                        except RuntimeError:
-                            pass
-                    if pid and st.button(
-                        "Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
-                    ):
-                        db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
-                        st.cache_data.clear()
-                        st.rerun()
+
+        # Content-type filter pills
+        _type_filter = st.radio(
+            "Filter by type",
+            options=["All", "Carousel", "Reel", "Standard"],
+            index=0,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="sched_type_filter",
+        )
+        if _type_filter == "Carousel":
+            sched_sorted = [p for p in sched_sorted if p.get("post_type") == "carousel"]
+        elif _type_filter == "Reel":
+            sched_sorted = [p for p in sched_sorted if p.get("post_type") == "reel"]
+        elif _type_filter == "Standard":
+            sched_sorted = [
+                p for p in sched_sorted if p.get("post_type") not in ("carousel", "reel")
+            ]
+
+        if not sched_sorted:
+            st.info(f"No {_type_filter.lower()} posts scheduled.")
+        else:
+            cols = st.columns(3)
+            for i, p in enumerate(sched_sorted):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        _post_card(p, _sched_str(p), "scheduled")
+                        pid = p.get("id", "")
+                        if pid and st.button(
+                            "Publish now",
+                            key=f"pub_{pid}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            db.table("posts").update(
+                                {"scheduled_time": datetime.now(UTC).isoformat()}
+                            ).eq("id", pid).execute()
+                            try:
+                                _queue_command("publish", cooldown_key=f"pub_{pid}")
+                            except RuntimeError:
+                                pass
+                        if pid and st.button(
+                            "Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
+                            st.cache_data.clear()
+                            st.rerun()
 
 # ── Calendar ──────────────────────────────────────────────────────────────────
 
