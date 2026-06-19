@@ -43,7 +43,7 @@ import anthropic
 from pydantic import BaseModel, Field
 
 from core.config import Config, config
-from core.models import Pillar, Platform, Post, Topic, TopicStatus
+from core.models import Pillar, Platform, Post, PostStatus, Topic, TopicStatus
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +320,7 @@ class ResearchAgent:
                         hashtags=list(post.hashtags),
                         title=post.title,
                         thumbnail_url=post.thumbnail_url,
+                        status=PostStatus.CONTENT_READY.value,
                     )
                     if persist and self._db is not None:
                         self._db.insert(fb_post)
