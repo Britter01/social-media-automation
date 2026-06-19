@@ -100,6 +100,10 @@ class Config:
     # at runtime from instagram_access_token. Posting to a Page must be done
     # "as the page", which requires a Page token — not a user token.
     facebook_page_access_token: str | None = None
+    # App ID + secret (Meta App → Settings → Basic). Needed only to auto-refresh
+    # the long-lived user token before its ~60-day expiry; see core/meta_token.py.
+    facebook_app_id: str | None = None
+    facebook_app_secret: str | None = None
 
     twitter_api_key: str | None = None
     twitter_api_secret: str | None = None
@@ -207,6 +211,8 @@ class Config:
             instagram_business_account_id=_get("INSTAGRAM_BUSINESS_ACCOUNT_ID"),
             facebook_page_id=_get("FACEBOOK_PAGE_ID"),
             facebook_page_access_token=_get("FACEBOOK_PAGE_ACCESS_TOKEN"),
+            facebook_app_id=_get("FACEBOOK_APP_ID"),
+            facebook_app_secret=_get("FACEBOOK_APP_SECRET"),
             twitter_api_key=_get("TWITTER_API_KEY"),
             twitter_api_secret=_get("TWITTER_API_SECRET"),
             twitter_access_token=_get("TWITTER_ACCESS_TOKEN"),

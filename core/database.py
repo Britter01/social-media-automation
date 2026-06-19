@@ -72,6 +72,15 @@ And the analytics table the analytics agent writes to:
     );
     CREATE INDEX IF NOT EXISTS post_analytics_post_id_idx ON post_analytics(post_id);
     CREATE INDEX IF NOT EXISTS post_analytics_fetched_at_idx ON post_analytics(fetched_at);
+
+And the key/value table used to persist the auto-refreshed Meta token
+(see core/meta_token.py):
+
+    create table if not exists app_settings (
+        key        text primary key,
+        value      text,
+        updated_at timestamptz not null default now()
+    );
 """
 
 from __future__ import annotations
