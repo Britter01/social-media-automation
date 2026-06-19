@@ -106,7 +106,13 @@ _AI_TOPICS = [
 
 _GRAPH = "https://platform.higgsfield.ai"
 _FREESOUND_SEARCH = "https://freesound.org/apiv2/search/text/"
-_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
+# Server-side search — the API runs the search between turns so the model
+# never needs programmatic tool-calling support (Haiku 4.5 lacks it).
+_WEB_SEARCH_TOOL = {
+    "type": "web_search_20260209",
+    "name": "web_search",
+    "allowed_callers": ["direct"],
+}
 _MAX_WEB_CONTINUATIONS = 5
 
 # Freesound fallback queries for infographic music (calm/inspiring feel)
@@ -214,7 +220,7 @@ class InfographicAgent:
                 caption=caption,
                 hashtags=hashtags,
                 video_url=video_url,
-                post_type="reel",
+                post_type="infographic_reel",
                 status=PostStatus.CONTENT_READY.value,
             )
             posts.append(post)
@@ -237,7 +243,11 @@ class InfographicAgent:
 
         client = _ant.Anthropic(api_key=self._cfg.anthropic_api_key)
 
-        # --- Step 1: web search for raw facts (Haiku — high-token search) -----
+        # --- Step 1: web search for raw facts (server-side, Sonnet) -------------
+        # Server-side search (allowed_callers=["direct"]) handles searches
+        # automatically between turns; re-send on pause_turn to let it resume.
+        # Using model_creative because Haiku 4.5 doesn't support programmatic
+        # tool calling, which is required without the server-side flag.
         messages: list[dict] = [
             {
                 "role": "user",
@@ -254,26 +264,14 @@ class InfographicAgent:
         continuations = 0
         while continuations < _MAX_WEB_CONTINUATIONS:
             response = client.messages.create(
-                model=self._cfg.model_fast,
+                model=self._cfg.model_creative,
                 max_tokens=3000,
                 tools=[_WEB_SEARCH_TOOL],
                 messages=messages,
             )
-            if response.stop_reason not in ("tool_use", "pause_turn"):
+            if response.stop_reason != "pause_turn":
                 break
             messages.append({"role": "assistant", "content": response.content})
-            tool_results = []
-            for block in response.content:
-                if getattr(block, "type", None) == "tool_use":
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": getattr(block, "input", {}).get("query", ""),
-                        }
-                    )
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
             continuations += 1
 
         raw_research = "\n".join(
