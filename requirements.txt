@@ -26,3 +26,6 @@ google-auth>=2.30.0                # YouTube OAuth credentials
 # Scheduling
 APScheduler>=3.10.4
 tzdata>=2024.1                     # zoneinfo data (Windows / slim images)
+
+# Reels video generation
+moviepy>=1.0.3                     # slideshow assembly + audio mixing (requires ffmpeg on PATH)

@@ -56,6 +56,7 @@ def run_content_pipeline() -> str:
     from agents.carousel_agent import CarouselAgent
     from agents.content_agent import ContentAgent
     from agents.quality_agent import QualityAgent, QualityError
+    from agents.reels_agent import ReelsAgent
     from agents.scheduler_agent import SchedulerAgent
     from agents.thumbnail_agent import ThumbnailAgent
     from agents.video_agent import VideoAgent
@@ -73,6 +74,7 @@ def run_content_pipeline() -> str:
     video_agent = _safe_init(VideoAgent, "video")
     quality_agent = _safe_init(QualityAgent, "quality")
     carousel_agent = _safe_init(CarouselAgent, "carousel")
+    reels_agent = _safe_init(ReelsAgent, "reels")
 
     platforms = config.configured_platforms() or config.platforms
     pairings = _round_robin_platforms(config.content_pillars, platforms)
@@ -110,6 +112,21 @@ def run_content_pipeline() -> str:
             last_slot[platform] = post.scheduled_time
             db.upsert(post)
             created += 1
+
+            # Generate Reel twin(s) for any carousel (IG or FB).
+            if post.platform in _CAROUSEL_PLATFORMS and reels_agent and post.slides:
+                _configured = set(config.configured_platforms())
+                _reel_count = _create_reel_twins(
+                    post,
+                    reels_agent,
+                    scheduler_agent,
+                    db,
+                    last_slot,
+                    _configured,
+                    persist_insert=True,
+                )
+                if _reel_count:
+                    logger.info("Created %d reel(s) for post %s", _reel_count, post.id)
         except Exception as exc:
             logger.exception("Failed building post for %s/%s", pillar, platform)
             try:
@@ -224,6 +241,7 @@ def _finalise_posts(
     """
     from agents.carousel_agent import CarouselAgent
     from agents.quality_agent import QualityAgent, QualityError
+    from agents.reels_agent import ReelsAgent
     from agents.thumbnail_agent import ThumbnailAgent
     from agents.video_agent import VideoAgent
 
@@ -231,6 +249,7 @@ def _finalise_posts(
     video_agent = _safe_init(VideoAgent, "video")
     quality_agent = _safe_init(QualityAgent, "quality")
     carousel_agent = _safe_init(CarouselAgent, "carousel")
+    reels_agent = _safe_init(ReelsAgent, "reels")
 
     # Seed from the DB so new posts land after whatever's already queued.
     last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
@@ -262,6 +281,19 @@ def _finalise_posts(
                 db.upsert(post)
             scheduled += 1
 
+            # Generate Reel twin(s) for any carousel (IG or FB).
+            if post.platform in _CAROUSEL_PLATFORMS and reels_agent and post.slides:
+                _configured = set(config.configured_platforms())
+                _create_reel_twins(
+                    post,
+                    reels_agent,
+                    scheduler_agent,
+                    db,
+                    last_slot,
+                    _configured,
+                    persist_insert=persist_insert,
+                )
+
         except Exception as exc:
             logger.exception("Failed finalising post %s", post.id)
             try:
@@ -287,6 +319,72 @@ def _finalise_posts(
             )
         parts.append(f"{no_image} post(s) have no image: {'; '.join(reasons)}")
     return scheduled, " — ".join(parts)
+
+
+def _create_reel_twins(
+    carousel_post: Post,
+    reels_agent,
+    scheduler_agent,
+    db,
+    last_slot: dict,
+    configured: set,
+    *,
+    persist_insert: bool = True,
+) -> int:
+    """Generate Reel post(s) from a finished carousel post and persist them.
+
+    For an Instagram carousel: creates one Instagram Reel + one Facebook Reel
+    (so both platforms get video coverage from a single video render).
+    For a Facebook carousel (e.g. cross-posted from LinkedIn): creates only a
+    Facebook Reel (the Instagram flow already handles the IG twin).
+
+    The video is rendered once and both posts share the same Supabase URL.
+    Returns the number of Reel posts successfully created.
+    """
+    if carousel_post.platform == Platform.INSTAGRAM.value:
+        reel_platforms = [Platform.INSTAGRAM.value]
+        if Platform.FACEBOOK.value in configured:
+            reel_platforms.append(Platform.FACEBOOK.value)
+    else:
+        reel_platforms = [carousel_post.platform]
+
+    try:
+        video_url = reels_agent.generate_video_url(carousel_post)
+    except Exception:
+        logger.exception("ReelsAgent failed for post %s", carousel_post.id)
+        return 0
+
+    if not video_url:
+        return 0
+
+    count = 0
+    for reel_plat in reel_platforms:
+        try:
+            reel = Post(
+                pillar=carousel_post.pillar,
+                platform=reel_plat,
+                topic=carousel_post.topic,
+                caption=carousel_post.caption,
+                hashtags=list(carousel_post.hashtags),
+                title=carousel_post.title,
+                video_url=video_url,
+                post_type="reel",
+                status=PostStatus.CONTENT_READY.value,
+            )
+            scheduler_agent.schedule(reel, after=last_slot.get(reel_plat))
+            last_slot[reel_plat] = reel.scheduled_time
+            if persist_insert:
+                db.insert(reel)
+            else:
+                db.upsert(reel)
+            count += 1
+            logger.info(
+                "Created %s reel (id=%s) for carousel post %s", reel_plat, reel.id, carousel_post.id
+            )
+        except Exception:
+            logger.exception("Failed persisting %s reel for post %s", reel_plat, carousel_post.id)
+
+    return count
 
 
 def _apply_media(post: Post, thumbnail_agent, video_agent, quality_agent, carousel_agent) -> None:
