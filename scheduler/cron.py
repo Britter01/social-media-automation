@@ -1312,9 +1312,7 @@ def run_cleanup_commands() -> None:
         logger.exception("Cleanup: failed to prune pipeline_commands")
 
 
-def run_infographic_pipeline(
-    command: str = "create_infographic", topic: str | None = None
-) -> str:
+def run_infographic_pipeline(command: str = "create_infographic", topic: str | None = None) -> str:
     """Generate a data-driven infographic Reel and schedule it for publishing.
 
     *command* encodes the target platform(s):
@@ -1363,8 +1361,7 @@ def run_infographic_pipeline(
         logger.exception("Infographic pipeline: create_posts failed")
         if "usage limit" in msg.lower():
             return (
-                "⚠️ Anthropic API spending limit reached — "
-                "raise your cap at console.anthropic.com"
+                "⚠️ Anthropic API spending limit reached — raise your cap at console.anthropic.com"
             )
         return f"infographic creation failed: {type(exc).__name__}: {exc}"[:300]
 

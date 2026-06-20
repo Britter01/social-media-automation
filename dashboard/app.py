@@ -806,39 +806,27 @@ def _render_pipeline_controls(scope: str) -> None:
     # Topic / category selector
     _INFOG_TOPIC_MAP: dict[str, str | None] = {
         "Auto (daily rotation)": None,
-        "AI Productivity Tools & ROI": (
-            "AI productivity tools adoption and ROI statistics 2026"
-        ),
+        "AI Productivity Tools & ROI": ("AI productivity tools adoption and ROI statistics 2026"),
         "ChatGPT & Generative AI Business Use": (
             "ChatGPT and generative AI business usage statistics 2026"
         ),
         "AI Impact on Jobs & Salaries": (
             "AI impact on jobs: automation, new roles and salary statistics 2026"
         ),
-        "AI Coding Assistants": (
-            "AI coding assistants: developer productivity statistics 2026"
-        ),
-        "AI Content Creation": (
-            "AI content creation: usage and engagement statistics 2026"
-        ),
+        "AI Coding Assistants": ("AI coding assistants: developer productivity statistics 2026"),
+        "AI Content Creation": ("AI content creation: usage and engagement statistics 2026"),
         "Smart Home & AI Assistants": (
             "Smart home devices and AI assistant growth statistics 2026"
         ),
-        "Wearable Tech & Fitness AI": (
-            "Wearable tech and AI fitness tracking statistics 2026"
-        ),
-        "Remote Work Tech": (
-            "Remote work tech and AI collaboration tools statistics 2026"
-        ),
+        "Wearable Tech & Fitness AI": ("Wearable tech and AI fitness tracking statistics 2026"),
+        "Remote Work Tech": ("Remote work tech and AI collaboration tools statistics 2026"),
         "AI in Healthcare": (
             "AI in healthcare: diagnosis accuracy and patient outcome statistics 2026"
         ),
         "AI in Education": (
             "AI in education: student learning outcomes and adoption statistics 2026"
         ),
-        "AI in Finance": (
-            "AI in finance: fraud detection and trading statistics 2026"
-        ),
+        "AI in Finance": ("AI in finance: fraud detection and trading statistics 2026"),
         "AI in Cybersecurity": (
             "AI cybersecurity: threat detection and breach prevention statistics 2026"
         ),
@@ -861,12 +849,15 @@ def _render_pipeline_controls(scope: str) -> None:
     )
     _infog_topic_val = _INFOG_TOPIC_MAP[_infog_topic_label]
     if _infog_topic_val == "CUSTOM":
-        _infog_topic_val = st.text_input(
-            "Custom topic",
-            placeholder="e.g. AI in retail industry statistics 2026",
-            key=f"{scope}_infog_custom",
-            label_visibility="collapsed",
-        ).strip() or None
+        _infog_topic_val = (
+            st.text_input(
+                "Custom topic",
+                placeholder="e.g. AI in retail industry statistics 2026",
+                key=f"{scope}_infog_custom",
+                label_visibility="collapsed",
+            ).strip()
+            or None
+        )
 
     if st.button(
         "📊  Generate Infographic",
