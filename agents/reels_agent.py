@@ -46,19 +46,55 @@ CROSSFADE_DUR = 0.3  # seconds crossfade between slides
 FPS = 24
 MUSIC_VOLUME = 0.25  # 25% — keeps text slides as the focal point
 
-# ── Freesound search terms per content pillar ──────────────────────────────────
-# Each pillar has a list of queries tried in order — the first that returns
-# results wins. Broader/generic terms at the end ensure something is always found.
-
-_PILLAR_QUERIES: dict[str, list[str]] = {
-    "AI Guide": ["ambient electronic technology", "ambient electronic", "ambient background"],
-    "Tech Lifestyle": ["upbeat electronic background", "upbeat electronic", "upbeat ambient"],
-    "Productivity": ["lo-fi focus", "lo-fi", "calm ambient background"],
-    "Fitness Tech": ["energetic electronic beat", "energetic upbeat", "upbeat background"],
-    "Review": ["calm cinematic ambient", "cinematic ambient", "soft ambient background"],
-}
-_PILLAR_QUERIES_DEFAULT = ["ambient background music", "ambient", "background music"]
+# ── Freesound search configuration ────────────────────────────────────────────
 _FREESOUND_SEARCH = "https://freesound.org/apiv2/search/text/"
+
+# Applied to every search.
+# tag:music   — excludes sound effects, field recordings, and foley
+# avg_rating  — only tracks rated 3.0+ by the Freesound community
+# duration    — long enough to loop comfortably over a 20-30 s reel
+_FREESOUND_FILTER = "duration:[30 TO 180] tag:music avg_rating:[3.0 TO 5]"
+
+# Queries tried in order — first one with results wins.
+# Terms are intentionally specific to background music so the tag:music
+# filter and the query together strongly constrain results to usable tracks.
+_PILLAR_QUERIES: dict[str, list[str]] = {
+    "AI Guide": [
+        "cinematic ambient electronic synth background",
+        "ambient electronic background music",
+        "atmospheric synth background music",
+        "ambient background music",
+    ],
+    "Tech Lifestyle": [
+        "upbeat modern electronic background music",
+        "positive electronic background music",
+        "upbeat ambient electronic background",
+        "upbeat background music",
+    ],
+    "Productivity": [
+        "lo-fi hip hop background music",
+        "lofi chill background music",
+        "calm focus background music",
+        "calm background music",
+    ],
+    "Fitness Tech": [
+        "energetic electronic background music",
+        "motivational upbeat background music",
+        "dynamic electronic background music",
+        "upbeat background music",
+    ],
+    "Review": [
+        "cinematic calm background music",
+        "soft cinematic ambient background",
+        "calm acoustic background music",
+        "calm background music",
+    ],
+}
+_PILLAR_QUERIES_DEFAULT = [
+    "calm ambient background music",
+    "electronic background music",
+    "ambient background music",
+]
 
 
 class ReelsAgent:
@@ -261,15 +297,17 @@ class ReelsAgent:
     # ── Music ──────────────────────────────────────────────────────────────────
 
     def _fetch_music(self, pillar: str) -> str | None:
-        """Fetch a background music preview from Freesound matching the content pillar.
+        """Fetch a background music track from Freesound matching the content pillar.
 
-        Tries pillar-specific search terms first, then falls back to generic
-        ambient queries so music is almost always attached. The CC0-only
-        restriction is intentionally dropped — most quality background tracks
-        on Freesound are CC-BY, and that licence allows use in social media
-        videos. The licence used is logged for reference.
+        Uses a strict filter (tag:music + avg_rating:[3.0 TO 5] + duration) so
+        only proper background music is returned — not sound effects, field
+        recordings, or low-rated tracks. Pillar-specific queries are tried in
+        order from most specific to broadest; generic ambient queries are the
+        final fallback.
 
-        Returns a local .mp3 path, or None on failure (never raises).
+        Picks randomly from the top 5 rated results so quality stays high
+        while adding some variety. Returns a local .mp3 path, or None on
+        failure (never raises).
         """
         if not self._freesound_key:
             return None
@@ -279,32 +317,37 @@ class ReelsAgent:
         try:
             with httpx.Client(timeout=15.0) as client:
                 results = []
-                tried: list[str] = []
+                winning_query = ""
                 for query in queries:
                     resp = client.get(
                         _FREESOUND_SEARCH,
                         params={
                             "query": query,
-                            "filter": "duration:[20 TO 120]",
-                            "fields": "id,name,previews,duration,license",
-                            "page_size": 15,
+                            "filter": _FREESOUND_FILTER,
+                            "fields": "id,name,previews,duration,avg_rating,license",
+                            "page_size": 20,
                             "sort": "rating_desc",
                             "token": self._freesound_key,
                         },
                     )
                     resp.raise_for_status()
                     results = resp.json().get("results", [])
-                    tried.append(query)
                     if results:
+                        winning_query = query
                         break
 
                 if not results:
                     logger.info(
-                        "ReelsAgent: Freesound returned 0 results for all queries %s", tried
+                        "ReelsAgent: Freesound returned 0 results for pillar %r "
+                        "(all queries tried, filter=%s)",
+                        pillar,
+                        _FREESOUND_FILTER,
                     )
                     return None
 
-                track = random.choice(results[:10])
+                # Pick randomly from the top 5 so we get variety without
+                # dipping into lower-rated tracks further down the list.
+                track = random.choice(results[:5])
                 preview_url = (track.get("previews") or {}).get("preview-hq-mp3")
                 if not preview_url:
                     return None
@@ -314,7 +357,7 @@ class ReelsAgent:
 
             content = mp3_resp.content
             # Validate it's actually audio — Freesound occasionally returns an
-            # HTML error page which produces static noise when decoded as MP3.
+            # HTML error page which ffmpeg would decode as static noise.
             if not (
                 content[:3] == b"ID3"
                 or (len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0)
@@ -329,9 +372,10 @@ class ReelsAgent:
             tmp.write(content)
             tmp.close()
             logger.info(
-                "ReelsAgent: downloaded %r (query=%r, licence=%s)",
+                "ReelsAgent: selected %r (query=%r, rating=%.1f, licence=%s)",
                 track.get("name"),
-                tried[-1],
+                winning_query,
+                track.get("avg_rating") or 0,
                 track.get("license", "unknown"),
             )
             return tmp.name
