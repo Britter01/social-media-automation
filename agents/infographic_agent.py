@@ -35,7 +35,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 
-import httpx
+import requests as _req
 from pydantic import BaseModel, Field
 
 from core.config import Config, config
@@ -548,19 +548,19 @@ class InfographicAgent:
             "Authorization": f"Key {self._cfg.higgsfield_api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(timeout=30) as hx:
-            resp = hx.post(
-                f"{_GRAPH}/v1/text2image/soul",
-                headers=headers,
-                json={
-                    "prompt": prompt,
-                    "aspect_ratio": aspect_ratio,
-                    "quality": "HD",
-                    "batch_size": "SINGLE",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = _req.post(
+            f"{_GRAPH}/v1/text2image/soul",
+            headers=headers,
+            json={
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "quality": "HD",
+                "batch_size": "SINGLE",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         request_id = data.get("request_id") or data.get("id")
         if not request_id:
@@ -573,19 +573,17 @@ class InfographicAgent:
         while time.time() < deadline:
             time.sleep(interval)
             interval = min(interval * 1.5, 10)
-            with httpx.Client(timeout=15) as hx:
-                s = hx.get(poll_url, headers=headers_poll)
-                s.raise_for_status()
-                sd = s.json()
+            s = _req.get(poll_url, headers=headers_poll, timeout=15)
+            s.raise_for_status()
+            sd = s.json()
             status = sd.get("status", "")
             if status == "completed":
                 images = sd.get("images") or []
                 if not images:
                     raise RuntimeError("Higgsfield: completed but returned no images")
                 image_url = images[0].get("url") or images[0]
-                with httpx.Client(timeout=30) as hx:
-                    ir = hx.get(image_url)
-                    ir.raise_for_status()
+                ir = _req.get(image_url, timeout=30)
+                ir.raise_for_status()
                 return ir.content
             if status in ("failed", "nsfw"):
                 raise RuntimeError(f"Higgsfield generation {status}: {sd}")
