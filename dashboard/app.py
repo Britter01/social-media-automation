@@ -599,17 +599,16 @@ def load_analytics(_db):
         return [], str(exc)
 
 
-def load_last_command_status(_db, command: str):
-    """Most recent pipeline_commands row for *command*, or None."""
+def load_last_command_status(_db, command: str, prefix: bool = False):
+    """Most recent pipeline_commands row for *command*, or None.
+
+    When *prefix* is True, matches any command that starts with *command*
+    (useful for commands that may carry a ``|topic`` suffix).
+    """
     try:
-        result = (
-            _db.table("pipeline_commands")
-            .select("*")
-            .eq("command", command)
-            .order("requested_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+        q = _db.table("pipeline_commands").select("*")
+        q = q.like("command", f"{command}%") if prefix else q.eq("command", command)
+        result = q.order("requested_at", desc=True).limit(1).execute()
         rows = result.data or []
         return rows[0] if rows else None
     except Exception:
@@ -634,6 +633,7 @@ pending = by_status(topics, "pending_approval")
 approved_t = by_status(topics, "approved")
 in_progress = by_status(posts, "content_ready", "media_ready")
 scheduled = by_status(posts, "scheduled")
+generated = by_status(posts, "manual_ready")
 published = by_status(posts, "published")
 failed = by_status(posts, "failed")
 
@@ -804,6 +804,62 @@ def _render_pipeline_controls(scope: str) -> None:
         "Dark Panels (Instagram)": "create_infographic_dark",
         "Light Magazine (Instagram)": "create_infographic_light",
     }
+    # Topic / category selector
+    _INFOG_TOPIC_MAP: dict[str, str | None] = {
+        "Auto (daily rotation)": None,
+        "AI Productivity Tools & ROI": ("AI productivity tools adoption and ROI statistics 2026"),
+        "ChatGPT & Generative AI Business Use": (
+            "ChatGPT and generative AI business usage statistics 2026"
+        ),
+        "AI Impact on Jobs & Salaries": (
+            "AI impact on jobs: automation, new roles and salary statistics 2026"
+        ),
+        "AI Coding Assistants": ("AI coding assistants: developer productivity statistics 2026"),
+        "AI Content Creation": ("AI content creation: usage and engagement statistics 2026"),
+        "Smart Home & AI Assistants": (
+            "Smart home devices and AI assistant growth statistics 2026"
+        ),
+        "Wearable Tech & Fitness AI": ("Wearable tech and AI fitness tracking statistics 2026"),
+        "Remote Work Tech": ("Remote work tech and AI collaboration tools statistics 2026"),
+        "AI in Healthcare": (
+            "AI in healthcare: diagnosis accuracy and patient outcome statistics 2026"
+        ),
+        "AI in Education": (
+            "AI in education: student learning outcomes and adoption statistics 2026"
+        ),
+        "AI in Finance": ("AI in finance: fraud detection and trading statistics 2026"),
+        "AI in Cybersecurity": (
+            "AI cybersecurity: threat detection and breach prevention statistics 2026"
+        ),
+        "AI Customer Service & Chatbots": (
+            "AI customer service: chatbot adoption and satisfaction statistics 2026"
+        ),
+        "Generative AI Market & Investment": (
+            "Generative AI market size and investment growth 2026"
+        ),
+        "Self-Driving & Autonomous Vehicles": (
+            "Self-driving and autonomous vehicle technology statistics 2026"
+        ),
+        "✏️  Custom topic…": "CUSTOM",
+    }
+    _infog_topic_label = st.selectbox(
+        "Topic",
+        list(_INFOG_TOPIC_MAP.keys()),
+        key=f"{scope}_infog_topic",
+        label_visibility="collapsed",
+    )
+    _infog_topic_val = _INFOG_TOPIC_MAP[_infog_topic_label]
+    if _infog_topic_val == "CUSTOM":
+        _infog_topic_val = (
+            st.text_input(
+                "Custom topic",
+                placeholder="e.g. AI in retail industry statistics 2026",
+                key=f"{scope}_infog_custom",
+                label_visibility="collapsed",
+            ).strip()
+            or None
+        )
+
     if st.button(
         "📊  Generate Infographic",
         use_container_width=True,
@@ -815,23 +871,27 @@ def _render_pipeline_controls(scope: str) -> None:
         key=f"{scope}_infog_btn",
     ):
         try:
-            _queue_command(_infog_cmd_map[_infog_format], cooldown_key="create_infographic")
+            _cmd = _infog_cmd_map[_infog_format]
+            if _infog_topic_val:
+                _cmd = f"{_cmd}|{_infog_topic_val}"
+            _queue_command(_cmd, cooldown_key="create_infographic")
             st.info("Infographic queued — the Reel appears in Scheduled within ~5 min.")
         except RuntimeError:
             pass
         except Exception:
             st.error("Failed to queue infographic.")
 
-    _infog_last = load_last_command_status(db, "create_infographic")
-    if not _infog_last:
-        _infog_last = load_last_command_status(db, "create_infographic_ig")
-    if not _infog_last:
-        _infog_last = load_last_command_status(db, "create_infographic_fb")
+    _infog_last = load_last_command_status(db, "create_infographic", prefix=True)
     if _infog_last:
         _is = _infog_last.get("status", "")
         _im = _infog_last.get("error") or ""
         if _is in ("pending", "running"):
             st.caption("📊 Infographic generating…")
+        elif _im and "spending limit" in _im.lower():
+            st.warning(
+                "⚠️ Anthropic API spending limit reached. "
+                "Raise your cap at console.anthropic.com to resume."
+            )
         elif _is == "done" and _im:
             st.caption(f"📊 {_im}")
         elif _im:
@@ -1154,6 +1214,7 @@ def _post_card(
     tab_topics,
     tab_progress,
     tab_scheduled,
+    tab_generated,
     tab_calendar,
     tab_published,
     tab_analytics,
@@ -1163,6 +1224,7 @@ def _post_card(
         "Topics",
         "In Progress",
         "Scheduled",
+        f"Generated{f' ({len(generated)})' if generated else ''}",
         "Calendar",
         "Published",
         "Analytics",
@@ -1379,6 +1441,77 @@ with tab_scheduled:
                                 pass
                         if pid and st.button(
                             "Dismiss", key=f"dismiss_sched_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
+                            st.cache_data.clear()
+                            st.rerun()
+
+# ── Generated ─────────────────────────────────────────────────────────────────
+
+with tab_generated:
+    if not generated:
+        st.info(
+            "No manually generated posts yet. "
+            "Use Generate Infographic or Generate Posts to create content — "
+            "it will appear here for you to review before posting."
+        )
+    else:
+        st.markdown(
+            f"<div style='font-size:13px;color:{SLATE};margin-bottom:12px'>"
+            f"{len(generated)} post(s) ready — choose to post immediately or "
+            f"add to the schedule queue.</div>",
+            unsafe_allow_html=True,
+        )
+        gen_sorted = sorted(generated, key=lambda p: p.get("created_at") or "", reverse=True)
+        cols = st.columns(3)
+        for i, p in enumerate(gen_sorted):
+            with cols[i % 3]:
+                with st.container(border=True):
+                    _post_card(p, "Ready to post", "manual_ready")
+                    pid = p.get("id", "")
+                    if pid:
+                        btn1, btn2 = st.columns(2)
+                        with btn1:
+                            if st.button(
+                                "📤 Post Now",
+                                key=f"gen_postnow_{pid}",
+                                use_container_width=True,
+                                type="primary",
+                                help="Publish to the platform within ~2 minutes.",
+                            ):
+                                db.table("posts").update(
+                                    {
+                                        "status": "scheduled",
+                                        "scheduled_time": datetime.now(UTC).isoformat(),
+                                    }
+                                ).eq("id", pid).execute()
+                                try:
+                                    _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                except RuntimeError:
+                                    pass
+                                st.cache_data.clear()
+                                st.rerun()
+                        with btn2:
+                            if st.button(
+                                "📅 Schedule",
+                                key=f"gen_sched_{pid}",
+                                use_container_width=True,
+                                help="Let the auto-scheduler find the next optimal slot.",
+                            ):
+                                try:
+                                    _queue_command(
+                                        f"schedule_post|{pid}",
+                                        cooldown_key=f"schedpost_{pid}",
+                                    )
+                                    st.success("Scheduling… check the Scheduled tab shortly.")
+                                except RuntimeError:
+                                    st.warning("Already scheduling this post.")
+                        if st.button(
+                            "Dismiss",
+                            key=f"gen_dismiss_{pid}",
+                            use_container_width=True,
                         ):
                             db.table("posts").update({"status": "dismissed"}).eq(
                                 "id", pid
