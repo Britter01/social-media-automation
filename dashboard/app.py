@@ -991,13 +991,13 @@ def _model_badges(post: dict) -> str:
 
     parts = [_badge("Claude", "#EDE9FE", "#5B21B6")]
 
-    if has_media and post_type != "infographic_light":
+    if has_media:
         if bg_source == "cache":
             parts.append(_badge("BG Cached", "#D1FAE5", "#065F46"))
         elif bg_source == "higgsfield":
             parts.append(_badge("Higgsfield", "#DBEAFE", "#1D4ED8"))
         elif bg_source == "none":
-            pass  # light magazine or other PIL-only styles
+            pass  # PIL-only styles with no image API
         else:
             # older posts without meta, or freshly generated
             label = "Imagen 3" if bg_source in (None, "imagen_3") else image_model
