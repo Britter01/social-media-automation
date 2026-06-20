@@ -805,11 +805,17 @@ def run_diagnostics() -> str:
     keys = {
         "ANTHROPIC_API_KEY": bool(config.anthropic_api_key),
         "GOOGLE_API_KEY": bool(config.google_api_key),
+        "HIGGSFIELD_API_KEY": bool(config.higgsfield_api_key),
         "SUPABASE_URL": bool(config.supabase_url),
         "SUPABASE_KEY": bool(config.supabase_key),
     }
-    missing = [k for k, present in keys.items() if not present]
-    parts.append("keys missing: " + (", ".join(missing) if missing else "none"))
+    missing = [k for k, v in keys.items() if not v]
+    present = [k for k, v in keys.items() if v]
+    parts.append("keys present: " + (", ".join(present) if present else "none"))
+    if missing:
+        parts.append("keys missing: " + ", ".join(missing))
+    image_provider = "Higgsfield" if config.higgsfield_api_key else "Imagen 3"
+    parts.append(f"image provider: {image_provider}")
 
     # 2. Agent initialisation — the usual culprit for "No image yet".
     agent_status: list[str] = []
@@ -859,9 +865,11 @@ def run_diagnostics() -> str:
 
         ta = ThumbnailAgent()
         raw = ta.generate_raw(test_post)
-        media_parts.append(f"imagen OK ({len(raw) // 1024}kb)")
+        provider_label = "higgsfield" if config.higgsfield_api_key else "imagen"
+        media_parts.append(f"{provider_label} OK ({len(raw) // 1024}kb)")
     except Exception as exc:
-        media_parts.append(f"imagen FAILED ({str(exc)[:110]})")
+        provider_label = "higgsfield" if config.higgsfield_api_key else "imagen"
+        media_parts.append(f"{provider_label} FAILED ({str(exc)[:110]})")
 
     # Pillow slide render + brand overlay (no Imagen needed — if THIS fails,
     # even the dark-card carousel fallback produces zero slides).
