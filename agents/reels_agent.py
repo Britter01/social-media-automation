@@ -3,8 +3,8 @@
 Takes a carousel post whose ``.slides`` list is already populated with
 Supabase image URLs, downloads each frame, composites it onto a blurred
 9:16 background, assembles a ~20-second slideshow with 0.3 s crossfade
-transitions, optionally mixes in a royalty-free CC0 music track from the
-Freesound API, and uploads the finished MP4 to Supabase Storage.
+transitions, optionally mixes in a curated local MP3 track from
+``assets/music/``, and uploads the finished MP4 to Supabase Storage.
 
 Returns a public HTTPS Supabase URL — ready to hand to the publisher for
 Instagram Reels (Graph API ``media_type=REELS``) and Facebook Reels
@@ -16,16 +16,15 @@ Runtime requirements
 * ffmpeg binary on PATH  (add ``[phases.setup] nixPkgs = ["ffmpeg"]`` to
   nixpacks.toml — already done in this repo)
 * Pillow, httpx — already in requirements.txt
-* FREESOUND_API_KEY in Railway env vars for background music (optional —
-  Reels are still produced silently if the key is absent or the search
-  returns nothing)
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import pathlib
 import random
+import shutil
 import subprocess
 import tempfile
 
@@ -46,26 +45,15 @@ CROSSFADE_DUR = 0.3  # seconds crossfade between slides
 FPS = 24
 MUSIC_VOLUME = 0.25  # 25% — keeps text slides as the focal point
 
-# ── Freesound search terms per content pillar ──────────────────────────────────
-# Each pillar has a list of queries tried in order — the first that returns
-# results wins. Broader/generic terms at the end ensure something is always found.
-
-_PILLAR_QUERIES: dict[str, list[str]] = {
-    "AI Guide": ["ambient electronic technology", "ambient electronic", "ambient background"],
-    "Tech Lifestyle": ["upbeat electronic background", "upbeat electronic", "upbeat ambient"],
-    "Productivity": ["lo-fi focus", "lo-fi", "calm ambient background"],
-    "Fitness Tech": ["energetic electronic beat", "energetic upbeat", "upbeat background"],
-    "Review": ["calm cinematic ambient", "cinematic ambient", "soft ambient background"],
-}
-_PILLAR_QUERIES_DEFAULT = ["ambient background music", "ambient", "background music"]
-_FREESOUND_SEARCH = "https://freesound.org/apiv2/search/text/"
+# Curated local music tracks — see assets/music/README.md for how to add tracks.
+_MUSIC_DIR = pathlib.Path(__file__).parent.parent / "assets" / "music"
 
 
 class ReelsAgent:
     """Generates MP4 Reels from a carousel post's slide images."""
 
     def __init__(self) -> None:
-        self._freesound_key = getattr(_config, "freesound_api_key", None)
+        pass
 
     # ── Public entry point ─────────────────────────────────────────────────────
 
@@ -261,84 +249,38 @@ class ReelsAgent:
     # ── Music ──────────────────────────────────────────────────────────────────
 
     def _fetch_music(self, pillar: str) -> str | None:
-        """Fetch a background music preview from Freesound matching the content pillar.
+        """Pick a random local MP3 for *pillar* from ``assets/music/``.
 
-        Tries pillar-specific search terms first, then falls back to generic
-        ambient queries so music is almost always attached. The CC0-only
-        restriction is intentionally dropped — most quality background tracks
-        on Freesound are CC-BY, and that licence allows use in social media
-        videos. The licence used is logged for reference.
-
-        Returns a local .mp3 path, or None on failure (never raises).
+        Looks in ``assets/music/{pillar_slug}/`` first, then falls back to
+        ``assets/music/default/``. Returns a temp copy of the chosen file so
+        the caller's cleanup loop can safely unlink it without affecting the
+        source asset. Returns None (silent reel) if no tracks are found.
         """
-        if not self._freesound_key:
-            return None
+        pillar_slug = pillar.lower().replace(" ", "_")
 
-        queries = list(_PILLAR_QUERIES.get(pillar, [])) + _PILLAR_QUERIES_DEFAULT
+        candidates: list[pathlib.Path] = []
+        for folder_name in (pillar_slug, "default"):
+            folder = _MUSIC_DIR / folder_name
+            if folder.is_dir():
+                found = sorted(f for f in folder.iterdir() if f.suffix.lower() == ".mp3")
+                if found:
+                    candidates = found
+                    break
 
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                results = []
-                tried: list[str] = []
-                for query in queries:
-                    resp = client.get(
-                        _FREESOUND_SEARCH,
-                        params={
-                            "query": query,
-                            "filter": "duration:[20 TO 120]",
-                            "fields": "id,name,previews,duration,license",
-                            "page_size": 15,
-                            "sort": "rating_desc",
-                            "token": self._freesound_key,
-                        },
-                    )
-                    resp.raise_for_status()
-                    results = resp.json().get("results", [])
-                    tried.append(query)
-                    if results:
-                        break
-
-                if not results:
-                    logger.info(
-                        "ReelsAgent: Freesound returned 0 results for all queries %s", tried
-                    )
-                    return None
-
-                track = random.choice(results[:10])
-                preview_url = (track.get("previews") or {}).get("preview-hq-mp3")
-                if not preview_url:
-                    return None
-
-                mp3_resp = client.get(preview_url, follow_redirects=True, timeout=30.0)
-                mp3_resp.raise_for_status()
-
-            content = mp3_resp.content
-            # Validate it's actually audio — Freesound occasionally returns an
-            # HTML error page which produces static noise when decoded as MP3.
-            if not (
-                content[:3] == b"ID3"
-                or (len(content) >= 2 and content[0] == 0xFF and content[1] & 0xE0 == 0xE0)
-            ):
-                logger.warning(
-                    "ReelsAgent: Freesound preview is not valid MP3 (first bytes: %s); skipping",
-                    content[:16].hex(),
-                )
-                return None
-
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", prefix="reel_music_")
-            tmp.write(content)
-            tmp.close()
+        if not candidates:
             logger.info(
-                "ReelsAgent: downloaded %r (query=%r, licence=%s)",
-                track.get("name"),
-                tried[-1],
-                track.get("license", "unknown"),
+                "ReelsAgent: no local music tracks for pillar %r — reel will be silent", pillar
             )
-            return tmp.name
-
-        except Exception:
-            logger.warning("ReelsAgent: could not fetch music from Freesound", exc_info=True)
             return None
+
+        chosen = random.choice(candidates)
+        logger.info("ReelsAgent: selected music track %s for pillar %r", chosen.name, pillar)
+
+        # Copy to a temp file so the caller's finally-block can unlink it safely
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", prefix="reel_music_")
+        tmp.close()
+        shutil.copy2(str(chosen), tmp.name)
+        return tmp.name
 
     # ── Upload ─────────────────────────────────────────────────────────────────
 

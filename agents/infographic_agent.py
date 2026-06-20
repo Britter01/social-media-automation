@@ -969,12 +969,7 @@ class InfographicAgent:
             raise RuntimeError("ffmpeg not found on PATH or via imageio-ffmpeg") from exc
 
     def _fetch_music(self) -> str | None:
-        """Delegate to ReelsAgent's proven Freesound implementation.
-
-        ReelsAgent's _fetch_music handles follow_redirects, magic-byte
-        validation, and broad fallback queries — all confirmed working.
-        Reusing it avoids duplicating that logic here.
-        """
+        """Delegate to ReelsAgent's local-track selector."""
         try:
             from agents.reels_agent import ReelsAgent
 
