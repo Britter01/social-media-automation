@@ -1639,7 +1639,8 @@ class InfographicAgent:
             draw.text((PAD, ty), line, font=font_hl, fill=(255, 255, 255, 255))
             ty += int(hl_sz * 1.02)
 
-        # Coloured subtitle pill
+        # Coloured subtitle pill — 18px below the last title line
+        ty += 18
         font_sub = _load_font(_FONT_BODY, 22)
         hook_text = _strip_emojis(plan.hook)
         sub_bbox = draw.textbbox((0, 0), hook_text, font=font_sub)
@@ -1647,13 +1648,13 @@ class InfographicAgent:
         pill_h = sub_bbox[3] - sub_bbox[1] + 12
         pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(pill_layer).rounded_rectangle(
-            [(PAD, ty + 4), (PAD + pill_w, ty + 4 + pill_h)],
+            [(PAD, ty), (PAD + pill_w, ty + pill_h)],
             radius=pill_h // 2,
             fill=(*accent0, 220),
         )
         comp = Image.alpha_composite(comp, pill_layer)
         draw = ImageDraw.Draw(comp)
-        draw.text((PAD + 12, ty + 4 + 6), hook_text, font=font_sub, fill=(10, 10, 20, 255))
+        draw.text((PAD + 12, ty + 6), hook_text, font=font_sub, fill=(10, 10, 20, 255))
 
         # Divider line
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
