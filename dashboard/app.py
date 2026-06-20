@@ -1462,8 +1462,15 @@ with tab_scheduled:
 
 # ── Generated ─────────────────────────────────────────────────────────────────
 
+# Track posts actioned this session so they disappear immediately without
+# needing a second st.rerun() (which resets the active tab to 0).
+if "_gen_hidden" not in st.session_state:
+    st.session_state["_gen_hidden"] = set()
+
 with tab_generated:
-    if not generated:
+    # Filter out posts the user has already actioned this session.
+    visible_generated = [p for p in generated if p.get("id") not in st.session_state["_gen_hidden"]]
+    if not visible_generated:
         st.info(
             "No manually generated posts yet. "
             "Use Generate Infographic or Generate Posts to create content — "
@@ -1472,11 +1479,13 @@ with tab_generated:
     else:
         st.markdown(
             f"<div style='font-size:13px;color:{SLATE};margin-bottom:12px'>"
-            f"{len(generated)} post(s) ready — choose to post immediately or "
+            f"{len(visible_generated)} post(s) ready — choose to post immediately or "
             f"add to the schedule queue.</div>",
             unsafe_allow_html=True,
         )
-        gen_sorted = sorted(generated, key=lambda p: p.get("created_at") or "", reverse=True)
+        gen_sorted = sorted(
+            visible_generated, key=lambda p: p.get("created_at") or "", reverse=True
+        )
         cols = st.columns(3)
         for i, p in enumerate(gen_sorted):
             with cols[i % 3]:
@@ -1503,8 +1512,8 @@ with tab_generated:
                                     _queue_command("publish", cooldown_key=f"pub_{pid}")
                                 except RuntimeError:
                                     pass
+                                st.session_state["_gen_hidden"].add(pid)
                                 st.cache_data.clear()
-                                st.rerun()
                         with btn2:
                             if st.button(
                                 "📅 Schedule",
@@ -1517,7 +1526,8 @@ with tab_generated:
                                         f"schedule_post|{pid}",
                                         cooldown_key=f"schedpost_{pid}",
                                     )
-                                    st.success("Scheduling… check the Scheduled tab shortly.")
+                                    st.session_state["_gen_hidden"].add(pid)
+                                    st.cache_data.clear()
                                 except RuntimeError:
                                     st.warning("Already scheduling this post.")
                         if st.button(
@@ -1528,8 +1538,8 @@ with tab_generated:
                             db.table("posts").update({"status": "dismissed"}).eq(
                                 "id", pid
                             ).execute()
+                            st.session_state["_gen_hidden"].add(pid)
                             st.cache_data.clear()
-                            st.rerun()
 
 # ── Calendar ──────────────────────────────────────────────────────────────────
 
