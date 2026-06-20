@@ -664,6 +664,11 @@ class InfographicAgent:
         if not resp.ok:
             body = resp.text[:1000]
             logger.error("Higgsfield /text2image/soul %s error body: %s", resp.status_code, body)
+            if resp.status_code == 403 and "credits" in body.lower():
+                raise RuntimeError(
+                    "Higgsfield API credits exhausted — API credits are separate from "  # noqa: E501
+                    "in-app credits. Top up at platform.higgsfield.ai → Billing."
+                )
             raise RuntimeError(f"Higgsfield {resp.status_code}: {body}")
         data = resp.json()
 
@@ -1998,12 +2003,20 @@ class InfographicAgent:
                 return _RichSlidePlan(**block.input)
         raise RuntimeError("InfographicAgent: rich slide plan tool call returned no result")
 
+    def _generate_spot_image(self, prompt: str) -> bytes:
+        """Generate a 1:1 spot illustration — Higgsfield preferred, Imagen fallback."""
+        if self._cfg.higgsfield_api_key:
+            try:
+                return self._higgsfield_spot_image(prompt)
+            except Exception:
+                logger.warning(
+                    "InfographicAgent: Higgsfield spot failed; falling back to Imagen",
+                    exc_info=True,
+                )
+        return self._imagen_spot_image(prompt)
+
     def _higgsfield_spot_image(self, prompt: str) -> bytes:
-        """Generate a spot image via Higgsfield only — raises on any failure, no Imagen fallback."""
-        if not self._cfg.higgsfield_api_key:
-            raise RuntimeError(
-                "HIGGSFIELD_API_KEY not set — Rich slides require Higgsfield for all images."
-            )
+        """Generate a 1:1 spot image via Higgsfield Soul."""
         headers = {
             "Authorization": f"Key {self._cfg.higgsfield_api_key}",
             "Content-Type": "application/json",
@@ -2019,6 +2032,11 @@ class InfographicAgent:
             logger.error(
                 "Higgsfield spot /text2image/soul %s error body: %s", resp.status_code, body
             )
+            if resp.status_code == 403 and "credits" in body.lower():
+                raise RuntimeError(
+                    "Higgsfield API credits exhausted — API credits are separate from "  # noqa: E501
+                    "in-app credits. Top up at platform.higgsfield.ai → Billing."
+                )
             raise RuntimeError(f"Higgsfield spot {resp.status_code}: {body}")
         data = resp.json()
         request_id = data.get("request_id") or data.get("id")
@@ -2048,6 +2066,26 @@ class InfographicAgent:
                 raise RuntimeError(f"Higgsfield spot generation {status}: {sd}")
         raise RuntimeError("Higgsfield spot image timed out after 5 minutes")
 
+    def _imagen_spot_image(self, prompt: str) -> bytes:
+        """Generate a 1:1 spot image via Imagen (fallback for spot illustrations)."""
+        if not self._cfg.google_api_key:
+            raise RuntimeError(
+                "No image generation service available (Higgsfield failed, no GOOGLE_API_KEY)"
+            )  # noqa: E501
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self._cfg.google_api_key)
+        resp = client.models.generate_images(
+            model=self._cfg.imagen_model,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio="1:1"),
+        )
+        images = getattr(resp, "generated_images", None) or []
+        if not images:
+            raise RuntimeError("Imagen spot: returned no images")
+        return images[0].image.image_bytes
+
     def _create_rich_posts(
         self,
         topic: str,
@@ -2055,33 +2093,22 @@ class InfographicAgent:
         platforms: list[str] | None,
         theme: str,
     ) -> list[Post]:
-        """Generate background + spot images via Higgsfield, compose, upload, return Posts."""
+        """Generate background + spot images, compose, upload, return Posts."""
         if platforms is None:
             configured = set(self._cfg.configured_platforms())
             platforms = [
                 p for p in [Platform.INSTAGRAM.value, Platform.FACEBOOK.value] if p in configured
             ] or [Platform.INSTAGRAM.value]
 
-        logger.info("InfographicAgent: generating rich slide background via Higgsfield")
-        try:
-            bg_bytes = self._higgsfield_spot_image(plan.bg_prompt)
-        except RuntimeError as exc:
-            raise RuntimeError(
-                f"Rich slide failed — Higgsfield could not generate the background: {exc}"
-            ) from exc
+        logger.info("InfographicAgent: generating rich slide background")
+        bg_bytes, bg_source = self._generate_background(topic, aspect_ratio="1:1")
+        logger.info("InfographicAgent: rich slide background source=%s", bg_source)
 
         spot_bytes_list: list[bytes] = []
         prompts = (plan.spot_prompts or [])[:2]
         for i, prompt in enumerate(prompts):
             logger.info("InfographicAgent: generating rich spot image %d/%d", i + 1, len(prompts))
-            try:
-                spot_bytes_list.append(self._higgsfield_spot_image(prompt))
-            except RuntimeError as exc:
-                raise RuntimeError(
-                    f"Rich slide failed — Higgsfield could not generate spot image {i + 1}: {exc}. "
-                    "Rich slides require Higgsfield for all images. "
-                    "Check HIGGSFIELD_API_KEY and Higgsfield service status."
-                ) from exc
+            spot_bytes_list.append(self._generate_spot_image(prompt))
 
         image_bytes = self._compose_rich_slide(bg_bytes, spot_bytes_list, plan, theme)
         logger.info("InfographicAgent: composed rich %s slide (%d bytes)", theme, len(image_bytes))
