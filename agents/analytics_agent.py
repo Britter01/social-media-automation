@@ -634,11 +634,11 @@ class AnalyticsAgent:
                 )
             elif "(#100)" in insights_err:
                 self._warnings.append(
-                    "Facebook views missing: insights returned (#100) for every metric set, "
-                    "including the new 'post_views' names. Meta deprecated post_impressions "
-                    "(and 3-sec video views) for ALL API versions on 2026-06-15; if 'post_views' "
-                    "is also rejected the exact new field name may differ for this object type — "
-                    "engagement (likes/comments/shares) is still captured."
+                    "Facebook views/reach missing: the page token lacks the "
+                    "pages_read_engagement permission. Fix: (1) add pages_read_engagement "
+                    "to your Meta App permissions, (2) re-authorise to get a new user token "
+                    "with that scope, (3) use Refresh Meta Token to exchange it. "
+                    "Engagement (likes/comments/shares) is still captured."
                 )
             else:
                 self._warnings.append(insights_err)

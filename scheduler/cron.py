@@ -1154,15 +1154,19 @@ def run_diagnostics() -> str:
                         _fb_tried.append(f"{_mset.split(',')[0]}: {_fb_err(_ie)[:60]}")
 
                 if not _fb_success:
-                    _fail_hint = (
-                        " [likely pages_read_engagement missing]"
-                        if _tok_label == "page-token" and any("(#100)" in t for t in _fb_tried)
-                        else ""
-                    )
-                    parts.append(
-                        f"fb insights FAIL (page={_page_name}, tok={_tok_label}, "
-                        f"post={_fppid[:12]}){_fail_hint}: " + "; ".join(_fb_tried)
-                    )
+                    if _tok_label == "page-token" and any("(#100)" in t for t in _fb_tried):
+                        parts.append(
+                            f"fb insights FAIL — pages_read_engagement permission missing. "
+                            f"Fix: add pages_read_engagement to your Meta App, then re-authorise "
+                            f"(get a new user token with that scope, then use Refresh Meta Token). "
+                            f"Engagement (likes/comments/shares) still works. "
+                            f"Page={_page_name}, post={_fppid[:12]}"
+                        )
+                    else:
+                        parts.append(
+                            f"fb insights FAIL (page={_page_name}, tok={_tok_label}, "
+                            f"post={_fppid[:12]}): " + "; ".join(_fb_tried)
+                        )
             else:
                 parts.append("fb insights: no published Facebook post found yet")
         except Exception as _fe:
