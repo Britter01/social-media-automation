@@ -39,7 +39,13 @@ class GeneratedContent(BaseModel):
 
     title: str = Field(description="A short, scroll-stopping title or hook.")
     caption: str = Field(description="The post caption in the brand voice.")
-    hashtags: list[str] = Field(description="5-12 relevant hashtags WITHOUT the leading '#'.")
+    hashtags: list[str] = Field(
+        description=(
+            "Relevant hashtags WITHOUT the leading '#'. "
+            "Count by platform: Instagram → exactly 5; Facebook → exactly 5; "
+            "Twitter → 1-3; LinkedIn → 3-5; YouTube → 5-8; TikTok → 3-5."
+        )
+    )
 
 
 # Per-platform rules. These are stable, so they live inside the cached system
@@ -48,8 +54,13 @@ class GeneratedContent(BaseModel):
 _PLATFORM_GUIDANCE = {
     "instagram": (
         "Visual-first. 1-3 short paragraphs. A clear hook in line one that works "
-        "without the image. Conversational. End with a light question or CTA. Up "
-        "to 10 hashtags, a mix of broad and niche."
+        "without the image. Conversational. End with a light question or CTA. "
+        "Exactly 5 hashtags — choose the strongest mix of broad and niche."
+    ),
+    "facebook": (
+        "Warm, conversational. 1-3 paragraphs. A clear opening hook. "
+        "Invite engagement with a question or soft CTA at the end. "
+        "Exactly 5 hashtags."
     ),
     "twitter": (
         "Under 280 characters total INCLUDING hashtags. One sharp idea, no wind-up. "

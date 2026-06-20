@@ -1430,20 +1430,13 @@ def run_schedule_post(post_id: str) -> str:
     logger.info("Scheduling manual post %s", post_id)
     db = get_database()
     try:
-        rows = db.table("posts").select("*").eq("id", post_id).execute().data or []
-        if not rows:
+        post = db.get(post_id)
+        if not post:
             return f"post {post_id} not found"
-        post = Post.from_row(rows[0])
         scheduler_agent = SchedulerAgent()
         last_slot = db.latest_scheduled_time_by_platform()
         scheduler_agent.schedule(post, after=last_slot.get(post.platform))
-        db.table("posts").update(
-            {
-                "status": PostStatus.SCHEDULED.value,
-                "scheduled_time": post.scheduled_time.isoformat() if post.scheduled_time else None,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-        ).eq("id", post_id).execute()
+        db.upsert(post)
         ts = post.scheduled_time.strftime("%a %d %b %H:%M") if post.scheduled_time else "unknown"
         logger.info("Post %s scheduled for %s", post_id, ts)
         return f"scheduled for {ts}"
