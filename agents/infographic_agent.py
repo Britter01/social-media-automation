@@ -247,8 +247,8 @@ class _RichSlidePlan(BaseModel):
     hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix.")
     layout: str = Field(
         description=(
-            "Visual layout variant — choose ONE: 'magazine' (two-column, text left / images right), "
-            "'dashboard' (stats-led data cards), 'editorial' (quote-hero with supporting evidence). "
+            "Visual layout variant — choose ONE: 'magazine' (two-column, text left / images right), "  # noqa: E501
+            "'dashboard' (stats-led data cards), 'editorial' (quote-hero with supporting evidence). "  # noqa: E501
             "Pick whichever best suits this topic's content."
         )
     )
@@ -1941,7 +1941,7 @@ class InfographicAgent:
                 "You are a premium social media graphic designer for Brite Tech Lifestyle — "
                 "a brand that makes technology feel exciting and accessible. "
                 "Given research, create a rich one-page infographic slide plan. "
-                "Choose the layout that best fits the content ('magazine', 'dashboard', or 'editorial'). "
+                "Choose the layout that best fits the content ('magazine', 'dashboard', or 'editorial'). "  # noqa: E501
                 "Write dramatic, topic-specific Higgsfield image prompts. "
                 "Pack every section with current, specific, non-generic data. No emojis anywhere."
             ),
@@ -2027,9 +2027,7 @@ class InfographicAgent:
         if platforms is None:
             configured = set(self._cfg.configured_platforms())
             platforms = [
-                p
-                for p in [Platform.INSTAGRAM.value, Platform.FACEBOOK.value]
-                if p in configured
+                p for p in [Platform.INSTAGRAM.value, Platform.FACEBOOK.value] if p in configured
             ] or [Platform.INSTAGRAM.value]
 
         logger.info("InfographicAgent: generating rich slide background via Higgsfield")
@@ -2043,9 +2041,7 @@ class InfographicAgent:
         spot_bytes_list: list[bytes] = []
         prompts = (plan.spot_prompts or [])[:2]
         for i, prompt in enumerate(prompts):
-            logger.info(
-                "InfographicAgent: generating rich spot image %d/%d", i + 1, len(prompts)
-            )
+            logger.info("InfographicAgent: generating rich spot image %d/%d", i + 1, len(prompts))
             try:
                 spot_bytes_list.append(self._higgsfield_spot_image(prompt))
             except RuntimeError as exc:
@@ -2089,7 +2085,9 @@ class InfographicAgent:
         theme: str,
     ) -> bytes:
         """Dispatch to the layout renderer based on plan.layout."""
-        layout = plan.layout if plan.layout in ("magazine", "dashboard", "editorial") else "magazine"
+        layout = (
+            plan.layout if plan.layout in ("magazine", "dashboard", "editorial") else "magazine"
+        )
         if layout == "dashboard":
             return self._rich_dashboard(bg_bytes, spot_bytes_list, plan, theme)
         if layout == "editorial":
@@ -2097,7 +2095,7 @@ class InfographicAgent:
         return self._rich_magazine(bg_bytes, spot_bytes_list, plan, theme)
 
     @staticmethod
-    def _make_spot_circle(img_bytes: bytes, diameter: int) -> "object":
+    def _make_spot_circle(img_bytes: bytes, diameter: int) -> object:
         """Convert image bytes to a circular RGBA thumbnail (PIL Image)."""
         from PIL import Image, ImageDraw
 
@@ -2111,7 +2109,7 @@ class InfographicAgent:
         img.putalpha(mask)
         return img
 
-    def _rich_bg_base(self, bg_bytes: bytes, theme: str) -> "object":
+    def _rich_bg_base(self, bg_bytes: bytes, theme: str) -> object:
         """Apply theme-appropriate overlay to the Higgsfield background (returns PIL RGBA Image)."""
         from PIL import Image, ImageFilter
 
@@ -2184,9 +2182,7 @@ class InfographicAgent:
         )
 
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(dl).line(
-            [(PAD, HEADER_H), (W - PAD, HEADER_H)], fill=(*ACCENT, 70), width=1
-        )
+        ImageDraw.Draw(dl).line([(PAD, HEADER_H), (W - PAD, HEADER_H)], fill=(*ACCENT, 70), width=1)
         comp = Image.alpha_composite(comp, dl)
         draw = ImageDraw.Draw(comp)
 
@@ -2220,9 +2216,13 @@ class InfographicAgent:
                     font=font_sv,
                     fill=(*sc, 255) if theme == "dark" else (*sc, 230),
                 )
-                draw.text((ix, sy0 + 68), _strip_emojis(stats[si].label)[:34], font=font_sl, fill=TXT_MAIN)
+                draw.text(
+                    (ix, sy0 + 68), _strip_emojis(stats[si].label)[:34], font=font_sl, fill=TXT_MAIN
+                )
                 if stats[si].source:
-                    draw.text((ix, sy0 + 92), _strip_emojis(stats[si].source), font=font_ss, fill=TXT_BODY)
+                    draw.text(
+                        (ix, sy0 + 92), _strip_emojis(stats[si].source), font=font_ss, fill=TXT_BODY
+                    )
             cy += 176
 
         if plan.bullets:
@@ -2249,8 +2249,10 @@ class InfographicAgent:
         if plan.quote and cy + 120 <= H - 60:
             qy = max(cy + 16, H - 60 - 140)
             draw.text(
-                (LEFT_X, qy - 8), "“",
-                font=_load_font(_FONT_HEADLINE, 44), fill=(*ACCENT, 150),
+                (LEFT_X, qy - 8),
+                "“",
+                font=_load_font(_FONT_HEADLINE, 44),
+                fill=(*ACCENT, 150),
             )
             font_q = _load_font(_FONT_TAGLINE, max(19, int(H * 0.019)))
             font_qa = _load_font(_FONT_BODY, max(14, int(H * 0.014)))
@@ -2265,7 +2267,8 @@ class InfographicAgent:
                 draw.text(
                     (LEFT_X + 8, qy2 + 3),
                     f"— {_strip_emojis(plan.quote_attribution)}",
-                    font=font_qa, fill=(*ACCENT, 175),
+                    font=font_qa,
+                    fill=(*ACCENT, 175),
                 )
 
         # ── Right column: spot 1 → stat 3 → spot 2 → stat 4 ───────────────────
@@ -2278,7 +2281,8 @@ class InfographicAgent:
             ring1 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring1).ellipse(
                 [(RX_CTR - SPOT_D // 2 - 4, s1y - 4), (RX_CTR + SPOT_D // 2 + 4, s1y + SPOT_D + 4)],
-                outline=(*accents[0], 185), width=3,
+                outline=(*accents[0], 185),
+                width=3,
             )
             comp = Image.alpha_composite(comp, ring1)
             s1c = self._make_spot_circle(spot_bytes_list[0], SPOT_D)
@@ -2291,12 +2295,18 @@ class InfographicAgent:
             font_s3v = _load_font(_FONT_HEADLINE, max(40, int(H * 0.040)))
             font_s3l = _load_font(_FONT_BODY, max(14, int(H * 0.014)))
             draw.text(
-                (RX_CTR, s3_y), _strip_emojis(stats[2].value), font=font_s3v,
-                fill=(*sc3, 255) if theme == "dark" else (*sc3, 230), anchor="mm",
+                (RX_CTR, s3_y),
+                _strip_emojis(stats[2].value),
+                font=font_s3v,
+                fill=(*sc3, 255) if theme == "dark" else (*sc3, 230),
+                anchor="mm",
             )
             draw.text(
-                (RX_CTR, s3_y + 48), _strip_emojis(stats[2].label)[:28],
-                font=font_s3l, fill=TXT_BODY, anchor="mm",
+                (RX_CTR, s3_y + 48),
+                _strip_emojis(stats[2].label)[:28],
+                font=font_s3l,
+                fill=TXT_BODY,
+                anchor="mm",
             )
 
         if len(spot_bytes_list) >= 2:
@@ -2304,7 +2314,8 @@ class InfographicAgent:
             ring2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring2).ellipse(
                 [(RX_CTR - SPOT_D // 2 - 4, s2y - 4), (RX_CTR + SPOT_D // 2 + 4, s2y + SPOT_D + 4)],
-                outline=(*accents[1], 185), width=3,
+                outline=(*accents[1], 185),
+                width=3,
             )
             comp = Image.alpha_composite(comp, ring2)
             s2c = self._make_spot_circle(spot_bytes_list[1], SPOT_D)
@@ -2317,24 +2328,37 @@ class InfographicAgent:
             s4_base = H - 60 - SPOT_D - 80
             if s4_base > CONTENT_TOP + 460:
                 draw.text(
-                    (RX_CTR, s4_base - 50), _strip_emojis(s4.value),
+                    (RX_CTR, s4_base - 50),
+                    _strip_emojis(s4.value),
                     font=_load_font(_FONT_HEADLINE, max(34, int(H * 0.034))),
-                    fill=(*sc4, 255) if theme == "dark" else (*sc4, 230), anchor="mm",
+                    fill=(*sc4, 255) if theme == "dark" else (*sc4, 230),
+                    anchor="mm",
                 )
                 draw.text(
-                    (RX_CTR, s4_base - 8), _strip_emojis(s4.label)[:28],
+                    (RX_CTR, s4_base - 8),
+                    _strip_emojis(s4.label)[:28],
                     font=_load_font(_FONT_BODY, max(13, int(H * 0.013))),
-                    fill=TXT_BODY, anchor="mm",
+                    fill=TXT_BODY,
+                    anchor="mm",
                 )
 
         draw = ImageDraw.Draw(comp)
-        draw.text((PAD, H - 36), "britetechlifestyle.com", font=_load_font(_FONT_BODY, 17), fill=(*ACCENT, 150))
+        draw.text(
+            (PAD, H - 36),
+            "britetechlifestyle.com",
+            font=_load_font(_FONT_BODY, 17),
+            fill=(*ACCENT, 150),
+        )
 
         out_r = io.BytesIO()
         comp.convert("RGB").save(out_r, format="PNG")
         return add_brand_overlay(
-            out_r.getvalue(), self._cfg.brand_name, crop_bars=False,
-            corner="top_right", logo_scale=1.2, logo_top_pad=80,
+            out_r.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="top_right",
+            logo_scale=1.2,
+            logo_top_pad=80,
         )
 
     def _rich_dashboard(
@@ -2425,17 +2449,26 @@ class InfographicAgent:
             if si < len(stats):
                 cx_s = (sx0 + sx1) // 2
                 draw.text(
-                    (cx_s, sy0 + 60), _strip_emojis(stats[si].value), font=font_sv,
-                    fill=(*sc, 255) if theme == "dark" else (*sc, 230), anchor="mm",
+                    (cx_s, sy0 + 60),
+                    _strip_emojis(stats[si].value),
+                    font=font_sv,
+                    fill=(*sc, 255) if theme == "dark" else (*sc, 230),
+                    anchor="mm",
                 )
                 draw.text(
-                    (cx_s, sy0 + 118), _strip_emojis(stats[si].label)[:26],
-                    font=font_sl, fill=TXT_MAIN, anchor="mm",
+                    (cx_s, sy0 + 118),
+                    _strip_emojis(stats[si].label)[:26],
+                    font=font_sl,
+                    fill=TXT_MAIN,
+                    anchor="mm",
                 )
                 if stats[si].source:
                     draw.text(
-                        (cx_s, sy0 + 143), _strip_emojis(stats[si].source),
-                        font=font_ss, fill=TXT_BODY, anchor="mm",
+                        (cx_s, sy0 + 143),
+                        _strip_emojis(stats[si].source),
+                        font=font_ss,
+                        fill=TXT_BODY,
+                        anchor="mm",
                     )
 
         # ── Middle: [spot1 | bullets | spot2] ───────────────────────────────────
@@ -2448,9 +2481,12 @@ class InfographicAgent:
             cy1 = MID_TOP + MID_H // 2
             ring1 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring1).ellipse(
-                [(cx1 - SPOT_D // 2 - 4, cy1 - SPOT_D // 2 - 4),
-                 (cx1 + SPOT_D // 2 + 4, cy1 + SPOT_D // 2 + 4)],
-                outline=(*accents[0], 185), width=3,
+                [
+                    (cx1 - SPOT_D // 2 - 4, cy1 - SPOT_D // 2 - 4),
+                    (cx1 + SPOT_D // 2 + 4, cy1 + SPOT_D // 2 + 4),
+                ],
+                outline=(*accents[0], 185),
+                width=3,
             )
             comp = Image.alpha_composite(comp, ring1)
             s1c = self._make_spot_circle(spot_bytes_list[0], SPOT_D)
@@ -2462,7 +2498,8 @@ class InfographicAgent:
         if plan.bullets:
             if plan.bullets_title:
                 draw.text(
-                    (BUL_X, bcy), _strip_emojis(plan.bullets_title).upper(),
+                    (BUL_X, bcy),
+                    _strip_emojis(plan.bullets_title).upper(),
                     font=_load_font(_FONT_HEADLINE, max(20, int(H * 0.020))),
                     fill=(*ACCENT, 255),
                 )
@@ -2484,9 +2521,12 @@ class InfographicAgent:
             cy2 = MID_TOP + MID_H // 2
             ring2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring2).ellipse(
-                [(cx2 - SPOT_D // 2 - 4, cy2 - SPOT_D // 2 - 4),
-                 (cx2 + SPOT_D // 2 + 4, cy2 + SPOT_D // 2 + 4)],
-                outline=(*accents[1], 185), width=3,
+                [
+                    (cx2 - SPOT_D // 2 - 4, cy2 - SPOT_D // 2 - 4),
+                    (cx2 + SPOT_D // 2 + 4, cy2 + SPOT_D // 2 + 4),
+                ],
+                outline=(*accents[1], 185),
+                width=3,
             )
             comp = Image.alpha_composite(comp, ring2)
             s2c = self._make_spot_circle(spot_bytes_list[1], SPOT_D)
@@ -2504,13 +2544,21 @@ class InfographicAgent:
             comp = Image.alpha_composite(comp, qpanel)
             draw = ImageDraw.Draw(comp)
             draw.text(
-                (PAD + 16, QUOTE_TOP + 10), "“",
-                font=_load_font(_FONT_HEADLINE, 40), fill=(*ACCENT, 155),
+                (PAD + 16, QUOTE_TOP + 10),
+                "“",
+                font=_load_font(_FONT_HEADLINE, 40),
+                fill=(*ACCENT, 155),
             )
             font_q = _load_font(_FONT_TAGLINE, max(22, int(H * 0.022)))
             font_qa = _load_font(_FONT_BODY, max(15, int(H * 0.015)))
             _, qls, qsz = _fit_lines(
-                draw, _strip_emojis(plan.quote), _FONT_TAGLINE, 22, 17, W - PAD * 2 - 40, max_lines=3
+                draw,
+                _strip_emojis(plan.quote),
+                _FONT_TAGLINE,
+                22,
+                17,
+                W - PAD * 2 - 40,
+                max_lines=3,
             )
             qy = QUOTE_TOP + 30
             for ql in qls:
@@ -2520,17 +2568,28 @@ class InfographicAgent:
                 draw.text(
                     (W // 2, qy + 6),
                     f"— {_strip_emojis(plan.quote_attribution)}",
-                    font=font_qa, fill=(*ACCENT, 170), anchor="mm",
+                    font=font_qa,
+                    fill=(*ACCENT, 170),
+                    anchor="mm",
                 )
 
         draw = ImageDraw.Draw(comp)
-        draw.text((PAD, H - 36), "britetechlifestyle.com", font=_load_font(_FONT_BODY, 17), fill=(*ACCENT, 150))
+        draw.text(
+            (PAD, H - 36),
+            "britetechlifestyle.com",
+            font=_load_font(_FONT_BODY, 17),
+            fill=(*ACCENT, 150),
+        )
 
         out_d = io.BytesIO()
         comp.convert("RGB").save(out_d, format="PNG")
         return add_brand_overlay(
-            out_d.getvalue(), self._cfg.brand_name, crop_bars=False,
-            corner="top_right", logo_scale=1.2, logo_top_pad=80,
+            out_d.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="top_right",
+            logo_scale=1.2,
+            logo_top_pad=80,
         )
 
     def _rich_editorial(
@@ -2576,8 +2635,10 @@ class InfographicAgent:
         RIGHT_X = LEFT_W + 16
 
         draw.text(
-            (PAD, PAD), "britetechlifestyle.com",
-            font=_load_font(_FONT_BODY, 16), fill=(*ACCENT, 145),
+            (PAD, PAD),
+            "britetechlifestyle.com",
+            font=_load_font(_FONT_BODY, 16),
+            fill=(*ACCENT, 145),
         )
 
         font_hl, hl_lines, hl_sz = _fit_lines(
@@ -2606,9 +2667,12 @@ class InfographicAgent:
             cy1 = TOP_H // 2
             ring1 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring1).ellipse(
-                [(cx1 - SPOT_D1 // 2 - 5, cy1 - SPOT_D1 // 2 - 5),
-                 (cx1 + SPOT_D1 // 2 + 5, cy1 + SPOT_D1 // 2 + 5)],
-                outline=(*accents[0], 190), width=4,
+                [
+                    (cx1 - SPOT_D1 // 2 - 5, cy1 - SPOT_D1 // 2 - 5),
+                    (cx1 + SPOT_D1 // 2 + 5, cy1 + SPOT_D1 // 2 + 5),
+                ],
+                outline=(*accents[0], 190),
+                width=4,
             )
             comp = Image.alpha_composite(comp, ring1)
             s1c = self._make_spot_circle(spot_bytes_list[0], SPOT_D1)
@@ -2631,13 +2695,21 @@ class InfographicAgent:
             comp = Image.alpha_composite(comp, qpanel)
             draw = ImageDraw.Draw(comp)
             draw.text(
-                (PAD + 18, QUOTE_TOP + 8), "“",
-                font=_load_font(_FONT_HEADLINE, 52), fill=(*ACCENT, 160),
+                (PAD + 18, QUOTE_TOP + 8),
+                "“",
+                font=_load_font(_FONT_HEADLINE, 52),
+                fill=(*ACCENT, 160),
             )
             font_q = _load_font(_FONT_TAGLINE, max(24, int(H * 0.024)))
             font_qa = _load_font(_FONT_BODY, max(16, int(H * 0.016)))
             _, qls, qsz = _fit_lines(
-                draw, _strip_emojis(plan.quote), _FONT_TAGLINE, 24, 18, W - PAD * 2 - 40, max_lines=3
+                draw,
+                _strip_emojis(plan.quote),
+                _FONT_TAGLINE,
+                24,
+                18,
+                W - PAD * 2 - 40,
+                max_lines=3,
             )
             qy = QUOTE_TOP + 40
             for ql in qls:
@@ -2647,13 +2719,16 @@ class InfographicAgent:
                 draw.text(
                     (W // 2, qy + 5),
                     f"— {_strip_emojis(plan.quote_attribution)}",
-                    font=font_qa, fill=(*ACCENT, 170), anchor="mm",
+                    font=font_qa,
+                    fill=(*ACCENT, 170),
+                    anchor="mm",
                 )
 
         dl2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(dl2).line(
             [(PAD, QUOTE_TOP + QUOTE_H), (W - PAD, QUOTE_TOP + QUOTE_H)],
-            fill=(*ACCENT, 65), width=1,
+            fill=(*ACCENT, 65),
+            width=1,
         )
         comp = Image.alpha_composite(comp, dl2)
         draw = ImageDraw.Draw(comp)
@@ -2682,12 +2757,18 @@ class InfographicAgent:
             if si < len(stats):
                 cx_s = (sx0 + sx1) // 2
                 draw.text(
-                    (cx_s, sy0 + 52), _strip_emojis(stats[si].value), font=font_sv,
-                    fill=(*sc, 255) if theme == "dark" else (*sc, 230), anchor="mm",
+                    (cx_s, sy0 + 52),
+                    _strip_emojis(stats[si].value),
+                    font=font_sv,
+                    fill=(*sc, 255) if theme == "dark" else (*sc, 230),
+                    anchor="mm",
                 )
                 draw.text(
-                    (cx_s, sy0 + 106), _strip_emojis(stats[si].label)[:28],
-                    font=font_sl, fill=TXT_MAIN, anchor="mm",
+                    (cx_s, sy0 + 106),
+                    _strip_emojis(stats[si].label)[:28],
+                    font=font_sl,
+                    fill=TXT_MAIN,
+                    anchor="mm",
                 )
 
         # ── Bottom: bullets left (53%) + spot2 right (47%) ──────────────────────
@@ -2699,7 +2780,8 @@ class InfographicAgent:
         if plan.bullets:
             if plan.bullets_title:
                 draw.text(
-                    (PAD, bcy), _strip_emojis(plan.bullets_title).upper(),
+                    (PAD, bcy),
+                    _strip_emojis(plan.bullets_title).upper(),
                     font=_load_font(_FONT_HEADLINE, max(20, int(H * 0.020))),
                     fill=(*ACCENT, 255),
                 )
@@ -2709,8 +2791,13 @@ class InfographicAgent:
                 bc = accents[bi % len(accents)]
                 draw.ellipse([(PAD, bcy + 5), (PAD + 10, bcy + 15)], fill=(*bc, 230))
                 _, bls, bsz = _fit_lines(
-                    draw, _strip_emojis(bullet), _FONT_BODY, 15, 12,
-                    BOT_LEFT_W - PAD - 16, max_lines=2,
+                    draw,
+                    _strip_emojis(bullet),
+                    _FONT_BODY,
+                    15,
+                    12,
+                    BOT_LEFT_W - PAD - 16,
+                    max_lines=2,
                 )
                 for bl in bls:
                     draw.text((PAD + 16, bcy), bl, font=font_bl, fill=TXT_BODY)
@@ -2723,9 +2810,12 @@ class InfographicAgent:
             cy2 = BOT_TOP + BOT_H // 2
             ring2 = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(ring2).ellipse(
-                [(cx2 - SPOT_D2 // 2 - 4, cy2 - SPOT_D2 // 2 - 4),
-                 (cx2 + SPOT_D2 // 2 + 4, cy2 + SPOT_D2 // 2 + 4)],
-                outline=(*accents[1], 185), width=3,
+                [
+                    (cx2 - SPOT_D2 // 2 - 4, cy2 - SPOT_D2 // 2 - 4),
+                    (cx2 + SPOT_D2 // 2 + 4, cy2 + SPOT_D2 // 2 + 4),
+                ],
+                outline=(*accents[1], 185),
+                width=3,
             )
             comp = Image.alpha_composite(comp, ring2)
             s2c = self._make_spot_circle(spot_bytes_list[1], SPOT_D2)
@@ -2733,10 +2823,19 @@ class InfographicAgent:
             draw = ImageDraw.Draw(comp)
 
         draw = ImageDraw.Draw(comp)
-        draw.text((PAD, H - 36), "britetechlifestyle.com", font=_load_font(_FONT_BODY, 17), fill=(*ACCENT, 145))
+        draw.text(
+            (PAD, H - 36),
+            "britetechlifestyle.com",
+            font=_load_font(_FONT_BODY, 17),
+            fill=(*ACCENT, 145),
+        )
 
         out_e = io.BytesIO()
         comp.convert("RGB").save(out_e, format="PNG")
         return add_brand_overlay(
-            out_e.getvalue(), self._cfg.brand_name, crop_bars=False, corner="bottom_right", logo_scale=1.2
+            out_e.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
         )
