@@ -82,6 +82,14 @@ class PublisherAgent:
     def __init__(self, cfg: Config = config) -> None:
         self._cfg = cfg
 
+    @staticmethod
+    def _ig_fb_caption(post: Post) -> str:
+        """Caption + hashtags hard-capped at 5 for Instagram and Facebook compliance."""
+        if not post.hashtags:
+            return post.caption
+        tags = " ".join(h if h.startswith("#") else f"#{h}" for h in post.hashtags[:5])
+        return f"{post.caption}\n\n{tags}".strip()
+
     def publish(self, post: Post) -> Post:
         """Publish ``post`` to its platform; set status and platform id.
 
@@ -206,7 +214,7 @@ class PublisherAgent:
                 f"{base}/media",
                 data={
                     "image_url": post.thumbnail_url,
-                    "caption": post.caption_with_hashtags,
+                    "caption": self._ig_fb_caption(post),
                     "access_token": token,
                 },
             )
@@ -264,7 +272,7 @@ class PublisherAgent:
                 f"{base}/media",
                 data={
                     "media_type": "CAROUSEL",
-                    "caption": post.caption_with_hashtags,
+                    "caption": self._ig_fb_caption(post),
                     "children": ",".join(item_ids),
                     "access_token": token,
                 },
@@ -302,7 +310,7 @@ class PublisherAgent:
                 data={
                     "media_type": "REELS",
                     "video_url": post.video_url,
-                    "caption": post.caption_with_hashtags,
+                    "caption": self._ig_fb_caption(post),
                     "share_to_feed": "true",
                     "access_token": token,
                 },
@@ -386,7 +394,7 @@ class PublisherAgent:
                     f"{base}/photos",
                     data={
                         "url": post.thumbnail_url,
-                        "caption": post.caption_with_hashtags,
+                        "caption": self._ig_fb_caption(post),
                         "access_token": token,
                     },
                 )
@@ -394,7 +402,7 @@ class PublisherAgent:
                 resp = client.post(
                     f"{base}/feed",
                     data={
-                        "message": post.caption_with_hashtags,
+                        "message": self._ig_fb_caption(post),
                         "access_token": token,
                     },
                 )
@@ -437,7 +445,7 @@ class PublisherAgent:
             resp = client.post(
                 f"{base}/feed",
                 data={
-                    "message": post.caption_with_hashtags,
+                    "message": self._ig_fb_caption(post),
                     "attached_media": _json.dumps(photo_ids),
                     "access_token": token,
                 },
@@ -503,7 +511,7 @@ class PublisherAgent:
                         "upload_phase": "finish",
                         "video_id": video_id,
                         "video_state": "PUBLISHED",
-                        "description": post.caption_with_hashtags[:2200],
+                        "description": self._ig_fb_caption(post)[:2200],
                         "access_token": token,
                     },
                 )

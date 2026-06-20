@@ -241,7 +241,7 @@ class _InfographicPlan(BaseModel):
         description="Intriguing subheadline for the title card — max 10 words, no emojis"
     )
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
-    hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
+    hashtags: list[str] = Field(description="Exactly 5 relevant hashtags without the # prefix")
     cards: list[_StatCard] = Field(description="Exactly 4 stat cards, most surprising stat first")
 
 
@@ -262,7 +262,7 @@ class _TipsPlan(BaseModel):
     topic_title: str = Field(description="Punchy topic name — max 5 words, no emojis")
     hook: str = Field(description="Intriguing subheadline — max 10 words, no emojis")
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
-    hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
+    hashtags: list[str] = Field(description="Exactly 5 relevant hashtags without the # prefix")
     items: list[_TipItem] = Field(
         description="Actionable tips or steps (exactly 6 for wheel/dark styles, 8 for light style)"
     )
@@ -278,7 +278,7 @@ class _RichSlidePlan(BaseModel):
     topic_title: str = Field(description="Punchy topic name — max 5 words, no emojis.")
     hook: str = Field(description="Compelling subheadline — max 10 words, no emojis.")
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences.")
-    hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix.")
+    hashtags: list[str] = Field(description="Exactly 5 relevant hashtags without the # prefix.")
     layout: str = Field(
         description=(
             "Visual layout variant — choose ONE: 'magazine' (two-column, text left / images right), "  # noqa: E501
