@@ -1285,8 +1285,9 @@ class InfographicAgent:
             bg_bytes, bg_source = self._generate_background(topic, aspect_ratio="1:1")
             image_bytes = self._compose_dark_panels_image(bg_bytes, plan)
             post_type = "infographic_dark"
-        else:  # light — white PIL canvas, no image API
-            image_bytes = self._compose_light_magazine_image(plan)
+        else:  # light — AI background with dark overlay
+            bg_bytes, bg_source = self._generate_background(topic, aspect_ratio="1:1")
+            image_bytes = self._compose_light_magazine_image(bg_bytes, plan)
             post_type = "infographic_light"
 
         logger.info("InfographicAgent: composed %s image (%d bytes)", style, len(image_bytes))
@@ -1604,9 +1605,9 @@ class InfographicAgent:
             logo_scale=1.2,
         )
 
-    def _compose_light_magazine_image(self, plan: _TipsPlan) -> bytes:
-        """1080×1080 light/white magazine grid (like screenshot 4 style)."""
-        from PIL import Image, ImageDraw
+    def _compose_light_magazine_image(self, bg_bytes: bytes, plan: _TipsPlan) -> bytes:
+        """1080×1080 magazine-grid infographic on a Higgsfield AI background."""
+        from PIL import Image, ImageDraw, ImageFilter
 
         from core.image_utils import _fit_lines, _load_font, add_brand_overlay
 
@@ -1614,14 +1615,16 @@ class InfographicAgent:
         PAD = 32
         HEADER_H = 168
         GAP = 8
-        BG = (248, 248, 250)
-        DARK = (22, 22, 30)
 
-        comp = Image.new("RGBA", (W, H), (*BG, 255))
+        # AI background with subtle blur + dark overlay so text pops
+        bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((W, H), Image.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=6))
+        dark = Image.new("RGBA", (W, H), (6, 6, 18, 190))
+        comp = Image.alpha_composite(bg.convert("RGBA"), dark)
         draw = ImageDraw.Draw(comp)
 
         # ── Header ─────────────────────────────────────────────────────────────
-        # Very large bold black title
+        accent0 = (90, 180, 255)  # bright blue for dark background
         font_hl, hl_lines, hl_sz = _fit_lines(
             draw,
             _strip_emojis(plan.topic_title).upper(),
@@ -1633,11 +1636,11 @@ class InfographicAgent:
         )
         ty = PAD
         for line in hl_lines:
-            draw.text((PAD, ty), line, font=font_hl, fill=(*DARK, 255))
+            draw.text((PAD, ty), line, font=font_hl, fill=(255, 255, 255, 255))
             ty += int(hl_sz * 1.02)
 
-        # Coloured subtitle pill
-        accent0 = (0, 102, 204)
+        # Coloured subtitle pill — 18px below the last title line
+        ty += 18
         font_sub = _load_font(_FONT_BODY, 22)
         hook_text = _strip_emojis(plan.hook)
         sub_bbox = draw.textbbox((0, 0), hook_text, font=font_sub)
@@ -1645,18 +1648,20 @@ class InfographicAgent:
         pill_h = sub_bbox[3] - sub_bbox[1] + 12
         pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(pill_layer).rounded_rectangle(
-            [(PAD, ty + 4), (PAD + pill_w, ty + 4 + pill_h)],
+            [(PAD, ty), (PAD + pill_w, ty + pill_h)],
             radius=pill_h // 2,
             fill=(*accent0, 220),
         )
         comp = Image.alpha_composite(comp, pill_layer)
         draw = ImageDraw.Draw(comp)
-        draw.text((PAD + 12, ty + 4 + 6), hook_text, font=font_sub, fill=(255, 255, 255, 255))
+        draw.text((PAD + 12, ty + 6), hook_text, font=font_sub, fill=(10, 10, 20, 255))
 
-        # Divider
+        # Divider line
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(dl).line(
-            [(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)], fill=(180, 185, 200, 150), width=2
+            [(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)],
+            fill=(*accent0, 80),
+            width=1,
         )
         comp = Image.alpha_composite(comp, dl)
         draw = ImageDraw.Draw(comp)
@@ -1669,16 +1674,16 @@ class InfographicAgent:
         CELL_H = (GRID_H - GAP * (n_rows - 1)) // n_rows
 
         num_colors = [
-            (0, 102, 204),
-            (180, 30, 180),
-            (200, 80, 0),
-            (0, 150, 80),
-            (140, 0, 200),
-            (0, 160, 190),
-            (210, 130, 0),
-            (180, 20, 60),
-            (40, 140, 0),
-            (100, 60, 200),
+            (90, 200, 255),
+            (220, 80, 220),
+            (255, 140, 40),
+            (60, 220, 120),
+            (180, 80, 255),
+            (40, 220, 210),
+            (255, 200, 40),
+            (255, 80, 100),
+            (80, 220, 80),
+            (160, 120, 255),
         ]
 
         items = (plan.items + [None] * 10)[:10]
@@ -1698,10 +1703,10 @@ class InfographicAgent:
             x1 = x0 + CELL_W
             y1 = y0 + CELL_H
 
-            # Very light cell tint + border
+            # Semi-transparent dark cell panel with coloured border
             cb = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(cb).rectangle(
-                [(x0, y0), (x1, y1)], fill=(*nc, 8), outline=(*nc, 40), width=1
+                [(x0, y0), (x1, y1)], fill=(*nc, 18), outline=(*nc, 80), width=1
             )
             comp = Image.alpha_composite(comp, cb)
             draw = ImageDraw.Draw(comp)
@@ -1710,32 +1715,35 @@ class InfographicAgent:
             iw = CELL_W - 20
             iy = y0 + 8
 
-            # Number
+            # Number in accent colour
             draw.text((ix, iy), str(idx + 1), font=font_num_b, fill=(*nc, 255))
             num_bbox = draw.textbbox((0, 0), str(idx + 1), font=font_num_b)
             tx = ix + num_bbox[2] - num_bbox[0] + 8
 
-            # Title on same line as number
+            # Tip title — white
             _, t_lines, t_sz = _fit_lines(
                 draw, _strip_emojis(tip.title), _FONT_HEADLINE, 17, 13, iw - tx + ix, max_lines=2
             )
             for i_l, line in enumerate(t_lines):
                 draw.text(
-                    (tx, iy + i_l * int(t_sz * 1.0)), line, font=font_title, fill=(*DARK, 230)
+                    (tx, iy + i_l * int(t_sz * 1.0)),
+                    line,
+                    font=font_title,
+                    fill=(240, 240, 255, 230),
                 )
             iy += max(num_bbox[3] - num_bbox[1], len(t_lines) * int(t_sz * 1.0)) + 5
 
-            # Body text
+            # Body text — light silver
             _, b_lines, b_sz = _fit_lines(
                 draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, iw, max_lines=3
             )
             for line in b_lines:
-                draw.text((ix, iy), line, font=font_body, fill=(90, 95, 110, 220))
+                draw.text((ix, iy), line, font=font_body, fill=(180, 185, 210, 210))
                 iy += int(b_sz * 1.3)
 
         # @handle at bottom
         fh2 = _load_font(_FONT_BODY, 20)
-        draw.text((PAD, H - 40), "@britetechlifestyle", font=fh2, fill=(110, 115, 130, 200))
+        draw.text((PAD, H - 40), "@britetechlifestyle", font=fh2, fill=(*accent0, 160))
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
