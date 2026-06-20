@@ -664,6 +664,11 @@ class InfographicAgent:
         if not resp.ok:
             body = resp.text[:1000]
             logger.error("Higgsfield /text2image/soul %s error body: %s", resp.status_code, body)
+            if resp.status_code == 403 and "credits" in body.lower():
+                raise RuntimeError(
+                    "Higgsfield API credits exhausted — API credits are separate from "  # noqa: E501
+                    "in-app credits. Top up at platform.higgsfield.ai → Billing."
+                )
             raise RuntimeError(f"Higgsfield {resp.status_code}: {body}")
         data = resp.json()
 
@@ -2019,6 +2024,11 @@ class InfographicAgent:
             logger.error(
                 "Higgsfield spot /text2image/soul %s error body: %s", resp.status_code, body
             )
+            if resp.status_code == 403 and "credits" in body.lower():
+                raise RuntimeError(
+                    "Higgsfield API credits exhausted — API credits are separate from "  # noqa: E501
+                    "in-app credits. Top up at platform.higgsfield.ai → Billing."
+                )
             raise RuntimeError(f"Higgsfield spot {resp.status_code}: {body}")
         data = resp.json()
         request_id = data.get("request_id") or data.get("id")
