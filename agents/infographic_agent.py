@@ -489,9 +489,8 @@ class InfographicAgent:
             logger.info("InfographicAgent: background memory-cache hit %s", cache_key)
             return self._bg_mem_cache[cache_key], "cache"
 
-        # 2. Supabase hit — retry on transient errors; raise rather than fall through
+        # 2. Supabase hit — retry on transient errors; warn and fall through on persistent failure
         if self._storage is not None:
-            last_exc: Exception | None = None
             for attempt in range(3):
                 try:
                     cached = self._storage.download(cache_key)
@@ -499,9 +498,8 @@ class InfographicAgent:
                         logger.info("InfographicAgent: background Supabase hit %s", cache_key)
                         self._bg_mem_cache[cache_key] = cached
                         return cached, "cache"
-                    break  # download() returned None → genuine 404, no point retrying
+                    break  # download() returned None → genuine 404, fall through to API
                 except Exception as exc:
-                    last_exc = exc
                     wait = 2**attempt
                     logger.warning(
                         "InfographicAgent: cache error (attempt %d/3): %s — retry in %ds",
@@ -509,13 +507,15 @@ class InfographicAgent:
                         exc,
                         wait,
                     )
-                    time.sleep(wait)
+                    if attempt < 2:
+                        time.sleep(wait)
             else:
-                # All 3 retries raised — cache is unreachable; refuse to burn API credits
-                raise RuntimeError(
-                    f"Background cache {cache_key!r} is unreachable after 3 attempts. "
-                    "Check Supabase Storage connectivity."
-                ) from last_exc
+                # All 3 retries raised — cache unreachable; log and fall through to API
+                logger.error(
+                    "InfographicAgent: Supabase cache unreachable after 3 attempts "
+                    "for %s — generating via API",
+                    cache_key,
+                )
 
         # 3. Genuine cache miss — generate via API once, then store everywhere
         source = "imagen_3"
