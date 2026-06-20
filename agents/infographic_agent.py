@@ -116,7 +116,7 @@ _BG_DEFAULT_SQUARE = (
 )
 
 # Cache key version — bump this to force Higgsfield to regenerate all backgrounds.
-_BG_CACHE_VERSION = "v2"
+_BG_CACHE_VERSION = "v3"
 
 # Accent colours for stat cards — one per card, cycles
 _ACCENT_PALETTE = [
