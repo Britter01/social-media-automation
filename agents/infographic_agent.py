@@ -29,6 +29,7 @@ import io
 import logging
 import math
 import os
+import random
 import re
 import subprocess
 import tempfile
@@ -146,6 +147,39 @@ _AI_TOPICS = [
 ]
 
 _GRAPH = "https://platform.higgsfield.ai"
+
+# Higgsfield Soul (/v1/text2image/soul) expects pixel dimensions via
+# `width_and_height`, not an aspect-ratio string. Map our aspect ratios to the
+# supported Soul resolutions.
+_SOUL_SIZES = {
+    "1:1": "1536x1536",
+    "9:16": "1152x2048",
+    "16:9": "2048x1152",
+    "3:4": "1536x2048",
+    "4:3": "2048x1536",
+    "2:3": "1024x1536",
+    "3:2": "1536x1024",
+}
+
+
+def _soul_payload(prompt: str, aspect_ratio: str) -> dict:
+    """Build the Higgsfield Soul request body.
+
+    The Soul endpoint requires all generation parameters wrapped in a top-level
+    `params` object (a flat body returns 422 "params: Field required").
+    """
+    return {
+        "params": {
+            "prompt": prompt,
+            "width_and_height": _SOUL_SIZES.get(aspect_ratio, "1536x1536"),
+            "quality": "1080p",
+            "batch_size": 1,
+            "enhance_prompt": True,
+            "seed": random.randint(1, 1_000_000),
+        }
+    }
+
+
 _FREESOUND_SEARCH = "https://freesound.org/apiv2/search/text/"
 # Server-side search — the API runs the search between turns so the model
 # never needs programmatic tool-calling support (Haiku 4.5 lacks it).
@@ -624,10 +658,7 @@ class InfographicAgent:
         resp = _req.post(
             f"{_GRAPH}/v1/text2image/soul",
             headers=headers,
-            json={
-                "prompt": prompt,
-                "aspect_ratio": aspect_ratio,
-            },
+            json=_soul_payload(prompt, aspect_ratio),
             timeout=30,
         )
         if not resp.ok:
@@ -1980,10 +2011,7 @@ class InfographicAgent:
         resp = _req.post(
             f"{_GRAPH}/v1/text2image/soul",
             headers=headers,
-            json={
-                "prompt": prompt,
-                "aspect_ratio": "1:1",
-            },
+            json=_soul_payload(prompt, "1:1"),
             timeout=30,
         )
         if not resp.ok:
