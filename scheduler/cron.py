@@ -1154,14 +1154,36 @@ def run_diagnostics() -> str:
                         _fb_tried.append(f"{_mset.split(',')[0]}: {_fb_err(_ie)[:60]}")
 
                 if not _fb_success:
-                    _fail_hint = (
-                        " [likely pages_read_engagement missing]"
-                        if _tok_label == "page-token" and any("(#100)" in t for t in _fb_tried)
-                        else ""
-                    )
+                    # Discovery call — fetch the insights edge with no metric
+                    # parameter. The API either returns available metrics or an
+                    # error that tells us the real problem.
+                    _discovery = ""
+                    try:
+                        _dr = _fb_req.get(
+                            f"https://graph.facebook.com/v22.0/{_fppid}/insights",
+                            params={"access_token": _fb_tok},
+                            timeout=8,
+                        )
+                        _ddata = _dr.json()
+                        if _dr.status_code == 200:
+                            _available = [i.get("name") for i in _ddata.get("data", [])]
+                            _discovery = (
+                                f" available_metrics={_available}"
+                                if _available
+                                else " discovery=empty"
+                            )
+                        else:
+                            _derr = _ddata.get("error", {})
+                            _discovery = (
+                                f" discovery_err=(#{_derr.get('code', '?')}) "
+                                f"{_derr.get('message', '?')[:80]}"
+                            )
+                    except Exception as _de:
+                        _discovery = f" discovery_err={str(_de)[:60]}"
+
                     parts.append(
                         f"fb insights FAIL (page={_page_name}, tok={_tok_label}, "
-                        f"post={_fppid[:12]}){_fail_hint}: " + "; ".join(_fb_tried)
+                        f"post={_fppid[:12]}): " + "; ".join(_fb_tried) + _discovery
                     )
             else:
                 parts.append("fb insights: no published Facebook post found yet")

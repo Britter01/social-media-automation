@@ -50,34 +50,73 @@ CARD_DURATION = 3.0  # seconds per infographic frame
 CROSSFADE_DUR = 0.4
 MUSIC_VOLUME = 0.08
 
-# ── Pillar → Higgsfield background prompt (9:16, vivid/dramatic) ─────────────
-_BG_PROMPTS: dict[str, str] = {
+# ── Pillar → background prompts, per aspect ratio ─────────────────────────────
+# Reel (9:16) prompts: portrait compositions, dramatic but not too busy.
+_BG_PROMPTS_REEL: dict[str, str] = {
     "AI Guide": (
         "dramatic abstract AI neural network, glowing cyan and electric-blue nodes connected by "
         "luminous data trails, deep dark cosmic background, 3D depth, cinematic, no text, "
-        "no letters, no words, portrait 9:16"
+        "no letters, no words"
     ),
     "Tech Lifestyle": (
         "sleek futuristic smart interior, holographic light panels, deep teal and gold ambient "
-        "glow, minimalist luxury surfaces, dynamic reflections, no text, no letters, portrait 9:16"
+        "glow, minimalist luxury surfaces, dynamic reflections, no text, no letters"
     ),
     "Productivity": (
         "clean dark workspace with glowing screens, gradient from deep navy to violet, "
-        "digital particles suggesting workflow automation, no text, no letters, portrait 9:16"
+        "digital particles suggesting workflow automation, no text, no letters"
     ),
     "Fitness Tech": (
         "abstract health data visualization, vivid green and electric orange energy pulses, "
-        "dark athletic background, motion blur, kinetic energy, no text, no letters, portrait 9:16"
+        "dark athletic background, motion blur, kinetic energy, no text, no letters"
     ),
     "Review": (
         "premium consumer electronics on dark matte surface, dramatic studio lighting, "
-        "specular highlights, deep shadows, product photography, no text, no letters, portrait 9:16"
+        "specular highlights, deep shadows, product photography, no text, no letters"
     ),
 }
-_BG_DEFAULT = (
+_BG_DEFAULT_REEL = (
     "futuristic digital abstract background, glowing geometric shapes, deep dark base with vivid "
-    "neon accents in cyan and purple, cinematic, no text, no letters, no words, portrait 9:16"
+    "neon accents in cyan and purple, cinematic, no text, no letters, no words"
 )
+
+# Square (1:1) prompts: bold centred compositions, ultra-dramatic for static infographics.
+_BG_PROMPTS_SQUARE: dict[str, str] = {
+    "AI Guide": (
+        "explosive AI neural network burst radiating from centre, ultra-vivid cyan and "
+        "electric-blue data streams, god rays piercing deep cosmic void, hyper-realistic "
+        "3D render, cinematic lens flare, volumetric light, richly saturated neon glow, "
+        "no text, no letters"
+    ),
+    "Tech Lifestyle": (
+        "ultra-dramatic futuristic smart home centred composition, cascading holographic panels, "
+        "deep black with rich teal and molten gold light, chrome reflections, cinematic depth, "
+        "luxury tech atmosphere, no text, no letters"
+    ),
+    "Productivity": (
+        "bold centred dark command centre, multiple glowing screens exploding with data, "
+        "deep navy to vivid violet gradient, dramatic god rays, neon particle streams, "
+        "cinematic ultra-wide depth of field, no text, no letters"
+    ),
+    "Fitness Tech": (
+        "high-energy centred health data explosion, vivid electric green and neon orange pulses "
+        "radiating outward, dark carbon background, dramatic motion streaks, cinematic lighting, "
+        "ultra-saturated colour, no text, no letters"
+    ),
+    "Review": (
+        "dramatic centred product hero shot on deep matte black, explosive studio rim lighting, "
+        "vivid specular highlights, deep rich shadows with colour grading, cinematic 4K render, "
+        "premium atmosphere, no text, no letters"
+    ),
+}
+_BG_DEFAULT_SQUARE = (
+    "ultra-dramatic centred abstract tech burst, glowing geometric shards radiating from centre, "
+    "deep black base, vivid neon cyan and electric purple god rays, volumetric light, "
+    "cinematic lens flare, hyper-saturated, no text, no letters, no words"
+)
+
+# Cache key version — bump this to force Higgsfield to regenerate all backgrounds.
+_BG_CACHE_VERSION = "v2"
 
 # Accent colours for stat cards — one per card, cycles
 _ACCENT_PALETTE = [
@@ -415,12 +454,22 @@ class InfographicAgent:
 
     def _bg_cache_key(self, topic: str, aspect_ratio: str) -> str:
         pillar = "default"
-        for pillar_name in _BG_PROMPTS:
+        for pillar_name in _BG_PROMPTS_REEL:
             if any(kw in topic.lower() for kw in pillar_name.lower().split()):
                 pillar = pillar_name.lower().replace(" ", "_")
                 break
         ar_slug = aspect_ratio.replace(":", "x")
-        return f"bg_cache/{pillar}_{ar_slug}.png"
+        return f"bg_cache/{_BG_CACHE_VERSION}_{pillar}_{ar_slug}.png"
+
+    def _bg_prompt(self, topic: str, aspect_ratio: str) -> str:
+        """Return the right prompt for the topic and aspect ratio."""
+        is_square = aspect_ratio == "1:1"
+        prompts = _BG_PROMPTS_SQUARE if is_square else _BG_PROMPTS_REEL
+        default = _BG_DEFAULT_SQUARE if is_square else _BG_DEFAULT_REEL
+        for pillar_name, prompt in prompts.items():
+            if any(kw in topic.lower() for kw in pillar_name.lower().split()):
+                return prompt
+        return default
 
     def _generate_background(self, topic: str, aspect_ratio: str = "9:16") -> tuple[bytes, str]:
         """Return (image_bytes, source) — source is 'cache', 'imagen_3', or 'higgsfield'.
@@ -493,11 +542,7 @@ class InfographicAgent:
         return bg_bytes, source
 
     def _higgsfield_background(self, topic: str, aspect_ratio: str = "9:16") -> bytes:
-        prompt = _BG_DEFAULT
-        for pillar_name, pillar_prompt in _BG_PROMPTS.items():
-            if any(kw in topic.lower() for kw in pillar_name.lower().split()):
-                prompt = pillar_prompt
-                break
+        prompt = self._bg_prompt(topic, aspect_ratio)
 
         headers = {
             "Authorization": f"Key {self._cfg.higgsfield_api_key}",
@@ -553,12 +598,7 @@ class InfographicAgent:
         from google import genai
         from google.genai import types
 
-        prompt = _BG_DEFAULT
-        for pillar_name, pillar_prompt in _BG_PROMPTS.items():
-            if any(kw in topic.lower() for kw in pillar_name.lower().split()):
-                prompt = pillar_prompt
-                break
-
+        prompt = self._bg_prompt(topic, aspect_ratio)
         client = genai.Client(api_key=self._cfg.google_api_key)
         resp = client.models.generate_images(
             model=self._cfg.imagen_model,
