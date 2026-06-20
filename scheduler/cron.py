@@ -1258,12 +1258,20 @@ def run_pending_commands() -> None:
             elif command == "refresh_token":
                 result_msg = run_token_refresh()
             elif command.startswith("create_infographic"):
-                result_msg = run_infographic_pipeline(command)
+                _parts = command.split("|", 1)
+                result_msg = run_infographic_pipeline(
+                    _parts[0], topic=_parts[1] if len(_parts) > 1 else None
+                )
             else:
                 error = f"Unknown command: {command}"
                 logger.warning("Command queue: %s", error)
         except Exception as exc:
             error = str(exc)
+            if "usage limit" in error.lower():
+                error = (
+                    "⚠️ Anthropic API spending limit reached — "
+                    "raise your cap at console.anthropic.com"
+                )
             logger.exception("Command queue: '%s' failed", command)
 
         # The ``error`` column doubles as a free-text result message: on success
@@ -1304,14 +1312,17 @@ def run_cleanup_commands() -> None:
         logger.exception("Cleanup: failed to prune pipeline_commands")
 
 
-def run_infographic_pipeline(command: str = "create_infographic") -> str:
+def run_infographic_pipeline(
+    command: str = "create_infographic", topic: str | None = None
+) -> str:
     """Generate a data-driven infographic Reel and schedule it for publishing.
 
     *command* encodes the target platform(s):
       "create_infographic"          → Instagram Reel + Facebook Reel (default)
       "create_infographic_ig"       → Instagram Reel only
       "create_infographic_fb"       → Facebook Reel only
-      "create_infographic_static"   → Static image post on Instagram (not yet implemented)
+      "create_infographic_static"   → Static image post on Instagram
+    *topic* overrides the agent's automatic daily-rotation topic selection.
     """
     from agents.infographic_agent import InfographicAgent
     from agents.scheduler_agent import SchedulerAgent
@@ -1343,10 +1354,18 @@ def run_infographic_pipeline(command: str = "create_infographic") -> str:
         logger.exception("Infographic pipeline: could not initialise")
         return f"infographic pipeline failed to initialise: {type(exc).__name__}: {exc}"[:300]
 
+    if topic:
+        logger.info("Infographic pipeline: using requested topic=%r", topic)
     try:
-        posts = agent.create_posts(platforms=platforms, fmt=fmt)
+        posts = agent.create_posts(topic=topic, platforms=platforms, fmt=fmt)
     except Exception as exc:
+        msg = str(exc)
         logger.exception("Infographic pipeline: create_posts failed")
+        if "usage limit" in msg.lower():
+            return (
+                "⚠️ Anthropic API spending limit reached — "
+                "raise your cap at console.anthropic.com"
+            )
         return f"infographic creation failed: {type(exc).__name__}: {exc}"[:300]
 
     if not posts:

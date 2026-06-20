@@ -599,17 +599,16 @@ def load_analytics(_db):
         return [], str(exc)
 
 
-def load_last_command_status(_db, command: str):
-    """Most recent pipeline_commands row for *command*, or None."""
+def load_last_command_status(_db, command: str, prefix: bool = False):
+    """Most recent pipeline_commands row for *command*, or None.
+
+    When *prefix* is True, matches any command that starts with *command*
+    (useful for commands that may carry a ``|topic`` suffix).
+    """
     try:
-        result = (
-            _db.table("pipeline_commands")
-            .select("*")
-            .eq("command", command)
-            .order("requested_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+        q = _db.table("pipeline_commands").select("*")
+        q = q.like("command", f"{command}%") if prefix else q.eq("command", command)
+        result = q.order("requested_at", desc=True).limit(1).execute()
         rows = result.data or []
         return rows[0] if rows else None
     except Exception:
@@ -804,6 +803,71 @@ def _render_pipeline_controls(scope: str) -> None:
         "Dark Panels (Instagram)": "create_infographic_dark",
         "Light Magazine (Instagram)": "create_infographic_light",
     }
+    # Topic / category selector
+    _INFOG_TOPIC_MAP: dict[str, str | None] = {
+        "Auto (daily rotation)": None,
+        "AI Productivity Tools & ROI": (
+            "AI productivity tools adoption and ROI statistics 2026"
+        ),
+        "ChatGPT & Generative AI Business Use": (
+            "ChatGPT and generative AI business usage statistics 2026"
+        ),
+        "AI Impact on Jobs & Salaries": (
+            "AI impact on jobs: automation, new roles and salary statistics 2026"
+        ),
+        "AI Coding Assistants": (
+            "AI coding assistants: developer productivity statistics 2026"
+        ),
+        "AI Content Creation": (
+            "AI content creation: usage and engagement statistics 2026"
+        ),
+        "Smart Home & AI Assistants": (
+            "Smart home devices and AI assistant growth statistics 2026"
+        ),
+        "Wearable Tech & Fitness AI": (
+            "Wearable tech and AI fitness tracking statistics 2026"
+        ),
+        "Remote Work Tech": (
+            "Remote work tech and AI collaboration tools statistics 2026"
+        ),
+        "AI in Healthcare": (
+            "AI in healthcare: diagnosis accuracy and patient outcome statistics 2026"
+        ),
+        "AI in Education": (
+            "AI in education: student learning outcomes and adoption statistics 2026"
+        ),
+        "AI in Finance": (
+            "AI in finance: fraud detection and trading statistics 2026"
+        ),
+        "AI in Cybersecurity": (
+            "AI cybersecurity: threat detection and breach prevention statistics 2026"
+        ),
+        "AI Customer Service & Chatbots": (
+            "AI customer service: chatbot adoption and satisfaction statistics 2026"
+        ),
+        "Generative AI Market & Investment": (
+            "Generative AI market size and investment growth 2026"
+        ),
+        "Self-Driving & Autonomous Vehicles": (
+            "Self-driving and autonomous vehicle technology statistics 2026"
+        ),
+        "✏️  Custom topic…": "CUSTOM",
+    }
+    _infog_topic_label = st.selectbox(
+        "Topic",
+        list(_INFOG_TOPIC_MAP.keys()),
+        key=f"{scope}_infog_topic",
+        label_visibility="collapsed",
+    )
+    _infog_topic_val = _INFOG_TOPIC_MAP[_infog_topic_label]
+    if _infog_topic_val == "CUSTOM":
+        _infog_topic_val = st.text_input(
+            "Custom topic",
+            placeholder="e.g. AI in retail industry statistics 2026",
+            key=f"{scope}_infog_custom",
+            label_visibility="collapsed",
+        ).strip() or None
+
     if st.button(
         "📊  Generate Infographic",
         use_container_width=True,
@@ -815,23 +879,27 @@ def _render_pipeline_controls(scope: str) -> None:
         key=f"{scope}_infog_btn",
     ):
         try:
-            _queue_command(_infog_cmd_map[_infog_format], cooldown_key="create_infographic")
+            _cmd = _infog_cmd_map[_infog_format]
+            if _infog_topic_val:
+                _cmd = f"{_cmd}|{_infog_topic_val}"
+            _queue_command(_cmd, cooldown_key="create_infographic")
             st.info("Infographic queued — the Reel appears in Scheduled within ~5 min.")
         except RuntimeError:
             pass
         except Exception:
             st.error("Failed to queue infographic.")
 
-    _infog_last = load_last_command_status(db, "create_infographic")
-    if not _infog_last:
-        _infog_last = load_last_command_status(db, "create_infographic_ig")
-    if not _infog_last:
-        _infog_last = load_last_command_status(db, "create_infographic_fb")
+    _infog_last = load_last_command_status(db, "create_infographic", prefix=True)
     if _infog_last:
         _is = _infog_last.get("status", "")
         _im = _infog_last.get("error") or ""
         if _is in ("pending", "running"):
             st.caption("📊 Infographic generating…")
+        elif _im and "spending limit" in _im.lower():
+            st.warning(
+                "⚠️ Anthropic API spending limit reached. "
+                "Raise your cap at console.anthropic.com to resume."
+            )
         elif _is == "done" and _im:
             st.caption(f"📊 {_im}")
         elif _im:
