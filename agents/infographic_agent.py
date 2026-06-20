@@ -537,13 +537,13 @@ class InfographicAgent:
         pad = int(REEL_W * 0.07)
         max_w = REEL_W - 2 * pad
 
-        # "BRITE TECH LIFESTYLE" small label at top
+        # Website label at top
         from core.image_utils import _fit_lines, _load_font
 
         font_label = _load_font(_FONT_BODY, 28)
         draw.text(
             (pad, int(REEL_H * 0.06)),
-            "BRITE TECH LIFESTYLE",
+            "britetechlifestyle.com",
             font=font_label,
             fill=(*accent, 200),
         )
