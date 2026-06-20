@@ -213,7 +213,15 @@ class _InfographicPlan(BaseModel):
 
 class _TipItem(BaseModel):
     title: str = Field(description="Short actionable tip/step title — max 6 words, no emojis")
-    body: str = Field(description="1-2 sentences of explanation — max 20 words, no emojis")
+    body: str = Field(description="2-3 sentences of useful detail — max 30 words, no emojis")
+    stat: str = Field(
+        default="",
+        description=(
+            "A striking number or statistic from the research that supports this tip "
+            "(e.g. '87%', '3×', '$2.4B', '10 min'). Max 8 characters. "
+            "Leave blank only if no useful stat applies."
+        ),
+    )
 
 
 class _TipsPlan(BaseModel):
@@ -222,7 +230,7 @@ class _TipsPlan(BaseModel):
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
     hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
     items: list[_TipItem] = Field(
-        description="Actionable tips or steps (exactly 6 for wheel/dark styles, 10 for light style)"
+        description="Actionable tips or steps (exactly 6 for wheel/dark styles, 8 for light style)"
     )
 
 
@@ -273,7 +281,7 @@ class InfographicAgent:
         logger.info("InfographicAgent: starting %s infographic for topic=%r", fmt, topic)
 
         if fmt in ("wheel", "dark", "light"):
-            n_items = 10 if fmt == "light" else 6
+            n_items = 8 if fmt == "light" else 6
             tips_plan = self._research_and_plan_tips(topic, n_items)
             logger.info(
                 "InfographicAgent: tips plan '%s' — %d items",
@@ -1242,7 +1250,10 @@ class InfographicAgent:
                 "You are a social media infographic designer for Brite Tech Lifestyle — "
                 "a brand that makes technology feel exciting and accessible. "
                 f"Given research notes, produce exactly {n_items} actionable tip items. "
-                "Keep titles SHORT (max 6 words) and bodies BRIEF (max 20 words). "
+                "Keep titles SHORT (max 6 words). Bodies should be 2-3 useful sentences "
+                "(max 30 words) — include specific, interesting detail. "
+                "For each item, extract a striking statistic or key number from the research "
+                "and place it in the stat field (e.g. '87%', '3x', '$2.4B'). "
                 "No emojis anywhere — brand fonts cannot render them."
             ),
             tools=[plan_tool],
@@ -1537,6 +1548,7 @@ class InfographicAgent:
         font_num_b = _load_font(_FONT_HEADLINE, 22)
         font_title = _load_font(_FONT_HEADLINE, 22)
         font_body = _load_font(_FONT_BODY, 16)
+        font_stat_dark = _load_font(_FONT_HEADLINE, 48)
 
         for idx, tip in enumerate(items):
             if tip is None:
@@ -1585,13 +1597,25 @@ class InfographicAgent:
                 iy += int(t_sz * 1.05)
             iy = y0 + 56
 
-            # Tip body
+            # Tip body — more detail now (max 30 words)
             _, b_lines, b_sz = _fit_lines(
-                draw, _strip_emojis(tip.body), _FONT_BODY, 16, 13, iw, max_lines=4
+                draw, _strip_emojis(tip.body), _FONT_BODY, 16, 13, iw, max_lines=5
             )
             for line in b_lines:
                 draw.text((ix, iy), line, font=font_body, fill=(170, 178, 198, 210))
                 iy += int(b_sz * 1.3)
+
+            # Stat — large number in lower portion of cell if space allows
+            stat_text = _strip_emojis(getattr(tip, "stat", "") or "")
+            if stat_text:
+                stat_y = max(iy + 8, y1 - 68)
+                if stat_y + 48 <= y1 - 4:
+                    draw.text(
+                        (ix, stat_y),
+                        stat_text,
+                        font=font_stat_dark,
+                        fill=(*accent, 200),
+                    )
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
@@ -1604,95 +1628,113 @@ class InfographicAgent:
         )
 
     def _compose_light_magazine_image(self, bg_bytes: bytes, plan: _TipsPlan) -> bytes:
-        """1080×1080 magazine-grid infographic — light/white colour scheme on Higgsfield background."""  # noqa: E501
+        """1080×1080 magazine infographic — hero image strip + 2x4 white grid with stat badges."""
         from PIL import Image, ImageDraw, ImageFilter
 
         from core.image_utils import _fit_lines, _load_font, add_brand_overlay
 
         W = H = 1080
         PAD = 32
-        HEADER_H = 168
+        HERO_H = 238  # Higgsfield image visible here; fades to white below
         GAP = 8
+        FOOT_H = 50
 
         CHARCOAL = (18, 18, 32)
         DARK_TEXT = (30, 32, 50)
         BODY_TEXT = (68, 70, 86)
+        accent0 = (28, 78, 200)  # deep navy
 
-        # AI background with strong white wash → light/magazine feel while keeping texture
+        # ── Background: hero strip fades to white wash below ────────────────────
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((W, H), Image.LANCZOS)
-        bg = bg.filter(ImageFilter.GaussianBlur(radius=8))
-        light = Image.new("RGBA", (W, H), (250, 248, 244, 218))
-        comp = Image.alpha_composite(bg.convert("RGBA"), light)
-        draw = ImageDraw.Draw(comp)
+        bg_soft = bg.filter(ImageFilter.GaussianBlur(radius=4))
+        comp = bg_soft.convert("RGBA")
 
-        # ── Header ─────────────────────────────────────────────────────────────
-        accent0 = (28, 78, 200)  # deep navy for light background
+        # Gradient: transparent at top of hero, full white in grid zone
+        grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        grad_draw = ImageDraw.Draw(grad)
+        for y in range(HERO_H):
+            alpha = int(215 * ((y / HERO_H) ** 2.2))
+            grad_draw.line([(0, y), (W - 1, y)], fill=(250, 248, 244, alpha))
+        grad_draw.rectangle([(0, HERO_H), (W - 1, H - 1)], fill=(250, 248, 244, 215))
+        comp = Image.alpha_composite(comp, grad)
+
+        # ── Hero text — title on frosted pill + hook on navy pill ────────────────
+        draw = ImageDraw.Draw(comp)
         font_hl, hl_lines, hl_sz = _fit_lines(
             draw,
             _strip_emojis(plan.topic_title).upper(),
             _FONT_HEADLINE,
-            max(68, int(H * 0.066)),
-            max(44, int(H * 0.040)),
+            max(56, int(H * 0.054)),
+            max(38, int(H * 0.036)),
             W - PAD * 2,
             max_lines=2,
         )
-        ty = PAD
+        ty = PAD + 8
+        title_bottom = ty + int(hl_sz * 1.02) * len(hl_lines)
+
+        # Frosted glass pill guarantees readability on any AI background colour
+        title_pill = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(title_pill).rounded_rectangle(
+            [(PAD - 10, ty - 8), (W - PAD + 10, title_bottom + 10)],
+            radius=10,
+            fill=(255, 255, 255, 155),
+        )
+        comp = Image.alpha_composite(comp, title_pill)
+        draw = ImageDraw.Draw(comp)
+
         for line in hl_lines:
             draw.text((PAD, ty), line, font=font_hl, fill=(*CHARCOAL, 255))
             ty += int(hl_sz * 1.02)
 
-        # Coloured subtitle pill — 18px below the last title line
-        ty += 18
-        font_sub = _load_font(_FONT_BODY, 22)
+        # Hook pill
+        ty += 16
+        font_sub = _load_font(_FONT_BODY, 21)
         hook_text = _strip_emojis(plan.hook)
         sub_bbox = draw.textbbox((0, 0), hook_text, font=font_sub)
         pill_w = sub_bbox[2] - sub_bbox[0] + 24
-        pill_h = sub_bbox[3] - sub_bbox[1] + 12
+        pill_h_px = sub_bbox[3] - sub_bbox[1] + 12
         pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(pill_layer).rounded_rectangle(
-            [(PAD, ty), (PAD + pill_w, ty + pill_h)],
-            radius=pill_h // 2,
-            fill=(*accent0, 230),
+            [(PAD, ty), (PAD + pill_w, ty + pill_h_px)],
+            radius=pill_h_px // 2,
+            fill=(*accent0, 235),
         )
         comp = Image.alpha_composite(comp, pill_layer)
         draw = ImageDraw.Draw(comp)
         draw.text((PAD + 12, ty + 6), hook_text, font=font_sub, fill=(255, 255, 255, 255))
 
-        # Divider line
+        # Subtle divider at hero/grid transition
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(dl).line(
-            [(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)],
-            fill=(*accent0, 60),
-            width=1,
-        )
+        ImageDraw.Draw(dl).line([(PAD, HERO_H), (W - PAD, HERO_H)], fill=(*accent0, 45), width=1)
         comp = Image.alpha_composite(comp, dl)
         draw = ImageDraw.Draw(comp)
 
-        # ── 2×5 grid (10 items) ─────────────────────────────────────────────────
-        FOOT_H = 55
-        GRID_H = H - HEADER_H - FOOT_H
-        n_cols, n_rows = 2, 5
-        CELL_W = (W - PAD * 2 - GAP) // n_cols
-        CELL_H = (GRID_H - GAP * (n_rows - 1)) // n_rows
+        # ── 2x4 grid — 8 items with large stat badges ────────────────────────────
+        GRID_H = H - HERO_H - FOOT_H
+        n_cols, n_rows = 2, 4
+        CELL_W = (W - PAD * 2 - GAP) // n_cols  # approx 504 px
+        CELL_H = (GRID_H - GAP * (n_rows - 1)) // n_rows  # approx 191 px
 
-        # Rich accent colours that read clearly on white cells
+        # Right ~30% of each cell reserved for the stat number
+        STAT_COL_W = CELL_W * 30 // 100  # approx 151 px
+        TEXT_MAX_W = CELL_W - STAT_COL_W - 16  # approx 337 px
+
         num_colors = [
-            (28, 100, 220),  # deep blue
-            (155, 28, 180),  # deep purple
-            (200, 75, 10),  # burnt orange
-            (18, 135, 75),  # forest green
-            (135, 18, 160),  # violet
-            (10, 135, 158),  # teal
-            (175, 125, 10),  # golden
-            (195, 28, 58),  # deep red
-            (38, 135, 38),  # green
-            (75, 48, 198),  # indigo
+            (28, 100, 220),
+            (155, 28, 180),
+            (200, 75, 10),
+            (18, 135, 75),
+            (135, 18, 160),
+            (10, 135, 158),
+            (175, 125, 10),
+            (195, 28, 58),
         ]
 
-        items = (plan.items + [None] * 10)[:10]
-        font_num_b = _load_font(_FONT_HEADLINE, 20)
-        font_title = _load_font(_FONT_HEADLINE, 17)
+        items = (plan.items + [None] * 8)[:8]
+        font_num_b = _load_font(_FONT_HEADLINE, 19)
+        font_title = _load_font(_FONT_HEADLINE, 16)
         font_body = _load_font(_FONT_BODY, 13)
+        font_stat_big = _load_font(_FONT_HEADLINE, 40)
 
         for idx, tip in enumerate(items):
             if tip is None:
@@ -1702,56 +1744,78 @@ class InfographicAgent:
             nc = num_colors[idx % len(num_colors)]
 
             x0 = PAD + col * (CELL_W + GAP)
-            y0 = HEADER_H + row * (CELL_H + GAP)
+            y0 = HERO_H + row * (CELL_H + GAP)
             x1 = x0 + CELL_W
             y1 = y0 + CELL_H
 
-            # White cell panel with subtle coloured outline
+            stat_text = _strip_emojis(getattr(tip, "stat", "") or "")
+
+            # White cell panel
             cb = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             ImageDraw.Draw(cb).rectangle(
-                [(x0, y0), (x1, y1)], fill=(255, 255, 255, 200), outline=(*nc, 45), width=1
+                [(x0, y0), (x1, y1)], fill=(255, 255, 255, 205), outline=(*nc, 40), width=1
             )
             comp = Image.alpha_composite(comp, cb)
 
-            # Coloured left-edge accent bar
+            # Left accent bar
             bar = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            ImageDraw.Draw(bar).rectangle([(x0, y0), (x0 + 4, y1)], fill=(*nc, 210))
+            ImageDraw.Draw(bar).rectangle([(x0, y0), (x0 + 4, y1)], fill=(*nc, 225))
             comp = Image.alpha_composite(comp, bar)
+
+            # Vertical divider between text and stat area
+            if stat_text:
+                vd = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                vdx = x1 - STAT_COL_W
+                ImageDraw.Draw(vd).line([(vdx, y0 + 12), (vdx, y1 - 12)], fill=(*nc, 28), width=1)
+                comp = Image.alpha_composite(comp, vd)
+
             draw = ImageDraw.Draw(comp)
 
             ix = x0 + 14
-            iw = CELL_W - 20
-            iy = y0 + 8
+            iy = y0 + 10
 
-            # Number in accent colour
-            draw.text((ix, iy), str(idx + 1), font=font_num_b, fill=(*nc, 255))
-            num_bbox = draw.textbbox((0, 0), str(idx + 1), font=font_num_b)
-            tx = ix + num_bbox[2] - num_bbox[0] + 8
+            # Number badge circle
+            draw.ellipse([(ix, iy), (ix + 22, iy + 22)], fill=(*nc, 200))
+            draw.text(
+                (ix + 11, iy + 11),
+                str(idx + 1),
+                font=font_num_b,
+                fill=(255, 255, 255, 255),
+                anchor="mm",
+            )
+            tx = ix + 28
+            iw_title = TEXT_MAX_W - 28
 
-            # Tip title — dark charcoal
+            # Tip title
             _, t_lines, t_sz = _fit_lines(
-                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 17, 13, iw - tx + ix, max_lines=2
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 16, 12, iw_title, max_lines=2
             )
             for i_l, line in enumerate(t_lines):
                 draw.text(
-                    (tx, iy + i_l * int(t_sz * 1.0)),
+                    (tx, iy + i_l * int(t_sz * 1.02)),
                     line,
                     font=font_title,
-                    fill=(*DARK_TEXT, 240),
+                    fill=(*DARK_TEXT, 245),
                 )
-            iy += max(num_bbox[3] - num_bbox[1], len(t_lines) * int(t_sz * 1.0)) + 5
+            iy += max(22, len(t_lines) * int(t_sz * 1.02)) + 6
 
-            # Body text — dark grey
+            # Body text — more detail allowed now (max 30 words, up to 5 lines)
             _, b_lines, b_sz = _fit_lines(
-                draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, iw, max_lines=3
+                draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, TEXT_MAX_W, max_lines=5
             )
             for line in b_lines:
                 draw.text((ix, iy), line, font=font_body, fill=(*BODY_TEXT, 225))
                 iy += int(b_sz * 1.3)
 
-        # @handle at bottom
-        fh2 = _load_font(_FONT_BODY, 20)
-        draw.text((PAD, H - 40), "@britetechlifestyle", font=fh2, fill=(*accent0, 180))
+            # Stat — large number centred in right column
+            if stat_text:
+                sx = x1 - STAT_COL_W // 2
+                sy = y0 + CELL_H // 2
+                draw.text((sx, sy), stat_text, font=font_stat_big, fill=(*nc, 225), anchor="mm")
+
+        # @handle footer
+        fh2 = _load_font(_FONT_BODY, 19)
+        draw.text((PAD, H - 38), "@britetechlifestyle", font=fh2, fill=(*accent0, 170))
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
