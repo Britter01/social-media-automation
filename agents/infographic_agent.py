@@ -132,11 +132,11 @@ _MUSIC_QUERIES = [
 # causing Pillow to render them as tofu squares (□). Strip before drawing.
 _EMOJI_RE = re.compile(
     "["
-    "\U0001F300-\U0001F9FF"
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
-    "\U0001FA00-\U0001FA6F"
-    "\U0001FA70-\U0001FAFF"
+    "\U0001f300-\U0001f9ff"
+    "\U00002702-\U000027b0"
+    "\U000024c2-\U0001f251"
+    "\U0001fa00-\U0001fa6f"
+    "\U0001fa70-\U0001faff"
     "☀-⛿"
     "✀-➿"
     "︀-️"
@@ -161,8 +161,12 @@ class _StatCard(BaseModel):
 
 
 class _InfographicPlan(BaseModel):
-    topic_title: str = Field(description="Punchy topic name for the title card — max 5 words, no emojis")
-    hook: str = Field(description="Intriguing subheadline for the title card — max 10 words, no emojis")
+    topic_title: str = Field(
+        description="Punchy topic name for the title card — max 5 words, no emojis"
+    )
+    hook: str = Field(
+        description="Intriguing subheadline for the title card — max 10 words, no emojis"
+    )
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
     hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
     cards: list[_StatCard] = Field(description="Exactly 4 stat cards, most surprising stat first")
@@ -230,7 +234,11 @@ class InfographicAgent:
         if fmt in ("wheel", "dark", "light"):
             n_items = 10 if fmt == "light" else 6
             tips_plan = self._research_and_plan_tips(topic, n_items)
-            logger.info("InfographicAgent: tips plan '%s' — %d items", tips_plan.topic_title, len(tips_plan.items))
+            logger.info(
+                "InfographicAgent: tips plan '%s' — %d items",
+                tips_plan.topic_title,
+                len(tips_plan.items),
+            )
             return self._create_tips_posts(topic, tips_plan, platforms, fmt)
 
         plan = self._research_and_plan(topic)
@@ -1301,19 +1309,29 @@ class InfographicAgent:
             nx2 = px0 + 18
             ny2 = py0 + 18
             draw.ellipse([(nx2 - 11, ny2 - 11), (nx2 + 11, ny2 + 11)], fill=(*c, 200))
-            draw.text((nx2, ny2), str(i + 1), font=_load_font(_FONT_HEADLINE, 14), fill=(255, 255, 255, 255), anchor="mm")
+            draw.text(
+                (nx2, ny2),
+                str(i + 1),
+                font=_load_font(_FONT_HEADLINE, 14),
+                fill=(255, 255, 255, 255),
+                anchor="mm",
+            )
 
             # Tip title
             tx = px0 + 36
             inner_w = (px1 - px0) - 42
-            _, t_lines, t_sz = _fit_lines(draw, _strip_emojis(tip.title), _FONT_HEADLINE, 18, 14, inner_w, max_lines=2)
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 18, 14, inner_w, max_lines=2
+            )
             ty2 = py0 + 8
             for line in t_lines:
                 draw.text((tx, ty2), line, font=font_pt, fill=(255, 255, 255, 240))
                 ty2 += int(t_sz * 1.1)
 
             # Tip body
-            _, b_lines, b_sz = _fit_lines(draw, _strip_emojis(tip.body), _FONT_BODY, 14, 12, (px1 - px0) - 12, max_lines=3)
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 14, 12, (px1 - px0) - 12, max_lines=3
+            )
             ty2 += 3
             for line in b_lines:
                 draw.text((px0 + 8, ty2), line, font=font_pb, fill=(170, 180, 200, 195))
@@ -1325,7 +1343,13 @@ class InfographicAgent:
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
-        return add_brand_overlay(out.getvalue(), self._cfg.brand_name, crop_bars=False, corner="bottom_right", logo_scale=1.2)
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )
 
     def _compose_dark_panels_image(self, bg_bytes: bytes, plan: _TipsPlan) -> bytes:
         """1080×1080 dark numbered panels (like screenshot 3 style)."""
@@ -1372,11 +1396,18 @@ class InfographicAgent:
             W - PAD * 2,
             max_lines=1,
         )
-        draw.text((PAD, ty + 4), hook_lines[0] if hook_lines else "", font=font_hook, fill=(185, 192, 210, 210))
+        draw.text(
+            (PAD, ty + 4),
+            hook_lines[0] if hook_lines else "",
+            font=font_hook,
+            fill=(185, 192, 210, 210),
+        )
 
         # Divider
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(dl).line([(PAD, HEADER_H - 6), (W - PAD, HEADER_H - 6)], fill=(*accent0, 100), width=2)
+        ImageDraw.Draw(dl).line(
+            [(PAD, HEADER_H - 6), (W - PAD, HEADER_H - 6)], fill=(*accent0, 100), width=2
+        )
         comp = Image.alpha_composite(comp, dl)
         draw = ImageDraw.Draw(comp)
 
@@ -1421,10 +1452,18 @@ class InfographicAgent:
 
             # Number badge circle
             draw.ellipse([(ix, iy), (ix + 26, iy + 26)], fill=(*accent, 200))
-            draw.text((ix + 13, iy + 13), str(idx + 1), font=font_num_b, fill=(255, 255, 255, 255), anchor="mm")
+            draw.text(
+                (ix + 13, iy + 13),
+                str(idx + 1),
+                font=font_num_b,
+                fill=(255, 255, 255, 255),
+                anchor="mm",
+            )
 
             # Tip title
-            _, t_lines, t_sz = _fit_lines(draw, _strip_emojis(tip.title), _FONT_HEADLINE, 22, 16, iw - 32, max_lines=2)
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 22, 16, iw - 32, max_lines=2
+            )
             tx = ix + 34
             for line in t_lines:
                 draw.text((tx, iy), line, font=font_title, fill=(255, 255, 255, 255))
@@ -1432,14 +1471,22 @@ class InfographicAgent:
             iy = y0 + 56
 
             # Tip body
-            _, b_lines, b_sz = _fit_lines(draw, _strip_emojis(tip.body), _FONT_BODY, 16, 13, iw, max_lines=4)
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 16, 13, iw, max_lines=4
+            )
             for line in b_lines:
                 draw.text((ix, iy), line, font=font_body, fill=(170, 178, 198, 210))
                 iy += int(b_sz * 1.3)
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
-        return add_brand_overlay(out.getvalue(), self._cfg.brand_name, crop_bars=False, corner="bottom_right", logo_scale=1.2)
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )
 
     def _compose_light_magazine_image(self, plan: _TipsPlan) -> bytes:
         """1080×1080 light/white magazine grid (like screenshot 4 style)."""
@@ -1482,7 +1529,9 @@ class InfographicAgent:
         pill_h = sub_bbox[3] - sub_bbox[1] + 12
         pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         ImageDraw.Draw(pill_layer).rounded_rectangle(
-            [(PAD, ty + 4), (PAD + pill_w, ty + 4 + pill_h)], radius=pill_h // 2, fill=(*accent0, 220)
+            [(PAD, ty + 4), (PAD + pill_w, ty + 4 + pill_h)],
+            radius=pill_h // 2,
+            fill=(*accent0, 220),
         )
         comp = Image.alpha_composite(comp, pill_layer)
         draw = ImageDraw.Draw(comp)
@@ -1490,7 +1539,9 @@ class InfographicAgent:
 
         # Divider
         dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(dl).line([(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)], fill=(180, 185, 200, 150), width=2)
+        ImageDraw.Draw(dl).line(
+            [(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)], fill=(180, 185, 200, 150), width=2
+        )
         comp = Image.alpha_composite(comp, dl)
         draw = ImageDraw.Draw(comp)
 
@@ -1533,7 +1584,9 @@ class InfographicAgent:
 
             # Very light cell tint + border
             cb = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            ImageDraw.Draw(cb).rectangle([(x0, y0), (x1, y1)], fill=(*nc, 8), outline=(*nc, 40), width=1)
+            ImageDraw.Draw(cb).rectangle(
+                [(x0, y0), (x1, y1)], fill=(*nc, 8), outline=(*nc, 40), width=1
+            )
             comp = Image.alpha_composite(comp, cb)
             draw = ImageDraw.Draw(comp)
 
@@ -1547,13 +1600,19 @@ class InfographicAgent:
             tx = ix + num_bbox[2] - num_bbox[0] + 8
 
             # Title on same line as number
-            _, t_lines, t_sz = _fit_lines(draw, _strip_emojis(tip.title), _FONT_HEADLINE, 17, 13, iw - tx + ix, max_lines=2)
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 17, 13, iw - tx + ix, max_lines=2
+            )
             for i_l, line in enumerate(t_lines):
-                draw.text((tx, iy + i_l * int(t_sz * 1.0)), line, font=font_title, fill=(*DARK, 230))
+                draw.text(
+                    (tx, iy + i_l * int(t_sz * 1.0)), line, font=font_title, fill=(*DARK, 230)
+                )
             iy += max(num_bbox[3] - num_bbox[1], len(t_lines) * int(t_sz * 1.0)) + 5
 
             # Body text
-            _, b_lines, b_sz = _fit_lines(draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, iw, max_lines=3)
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, iw, max_lines=3
+            )
             for line in b_lines:
                 draw.text((ix, iy), line, font=font_body, fill=(90, 95, 110, 220))
                 iy += int(b_sz * 1.3)
@@ -1564,4 +1623,10 @@ class InfographicAgent:
 
         out = io.BytesIO()
         comp.convert("RGB").save(out, format="PNG")
-        return add_brand_overlay(out.getvalue(), self._cfg.brand_name, crop_bars=False, corner="bottom_right", logo_scale=1.2)
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )
