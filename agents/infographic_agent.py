@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -125,6 +127,29 @@ _MUSIC_QUERIES = [
 ]
 
 
+# ── Emoji stripping ───────────────────────────────────────────────────────────
+# Brand fonts (BriteHero-Bold, Figtree, PlayfairDisplay) lack emoji glyphs,
+# causing Pillow to render them as tofu squares (□). Strip before drawing.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f9ff"
+    "\U00002702-\U000027b0"
+    "\U000024c2-\U0001f251"
+    "\U0001fa00-\U0001fa6f"
+    "\U0001fa70-\U0001faff"
+    "☀-⛿"
+    "✀-➿"
+    "︀-️"
+    "‍"
+    "]+",
+    re.UNICODE,
+)
+
+
+def _strip_emojis(text: str) -> str:
+    return _EMOJI_RE.sub("", text).strip()
+
+
 # ── Pydantic models for structured Claude output ──────────────────────────────
 
 
@@ -136,11 +161,30 @@ class _StatCard(BaseModel):
 
 
 class _InfographicPlan(BaseModel):
-    topic_title: str = Field(description="Punchy topic name for the title card — max 5 words")
-    hook: str = Field(description="Intriguing subheadline for the title card — max 10 words")
+    topic_title: str = Field(
+        description="Punchy topic name for the title card — max 5 words, no emojis"
+    )
+    hook: str = Field(
+        description="Intriguing subheadline for the title card — max 10 words, no emojis"
+    )
     caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
     hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
     cards: list[_StatCard] = Field(description="Exactly 4 stat cards, most surprising stat first")
+
+
+class _TipItem(BaseModel):
+    title: str = Field(description="Short actionable tip/step title — max 6 words, no emojis")
+    body: str = Field(description="1-2 sentences of explanation — max 20 words, no emojis")
+
+
+class _TipsPlan(BaseModel):
+    topic_title: str = Field(description="Punchy topic name — max 5 words, no emojis")
+    hook: str = Field(description="Intriguing subheadline — max 10 words, no emojis")
+    caption: str = Field(description="Instagram caption — 2-3 warm, conversational sentences")
+    hashtags: list[str] = Field(description="12 relevant hashtags without the # prefix")
+    items: list[_TipItem] = Field(
+        description="Actionable tips or steps (exactly 6 for wheel/dark styles, 10 for light style)"
+    )
 
 
 # ── Font paths (reuse core/image_utils paths) ──────────────────────────────────
@@ -180,12 +224,22 @@ class InfographicAgent:
     ) -> list[Post]:
         """Full pipeline: research → design → render → return Posts ready for scheduling.
 
-        *fmt* is "reel" (default) or "static".
-        *platforms* defaults to ["instagram", "facebook"] for reels, ["instagram"] for static.
+        *fmt* is "reel" (default), "static", "wheel", "dark", or "light".
+        *platforms* defaults to ["instagram", "facebook"] for reels, ["instagram"] for others.
         Returns Post objects with status=CONTENT_READY; caller schedules and persists them.
         """
         topic = topic or self._pick_topic()
         logger.info("InfographicAgent: starting %s infographic for topic=%r", fmt, topic)
+
+        if fmt in ("wheel", "dark", "light"):
+            n_items = 10 if fmt == "light" else 6
+            tips_plan = self._research_and_plan_tips(topic, n_items)
+            logger.info(
+                "InfographicAgent: tips plan '%s' — %d items",
+                tips_plan.topic_title,
+                len(tips_plan.items),
+            )
+            return self._create_tips_posts(topic, tips_plan, platforms, fmt)
 
         plan = self._research_and_plan(topic)
         logger.info("InfographicAgent: planned '%s' — %d cards", plan.topic_title, len(plan.cards))
@@ -497,7 +551,7 @@ class InfographicAgent:
         # Main topic title — large, white
         font_hl, hl_lines, hl_sz = _fit_lines(
             draw,
-            plan.topic_title.upper(),
+            _strip_emojis(plan.topic_title).upper(),
             _FONT_HEADLINE,
             max(72, int(REEL_H * 0.072)),
             max(48, int(REEL_H * 0.048)),
@@ -509,7 +563,7 @@ class InfographicAgent:
         # Hook subline — slightly below title
         font_hook, hook_lines, hook_sz = _fit_lines(
             draw,
-            plan.hook,
+            _strip_emojis(plan.hook),
             _FONT_TAGLINE,
             max(36, int(REEL_H * 0.036)),
             max(26, int(REEL_H * 0.026)),
@@ -544,6 +598,7 @@ class InfographicAgent:
             crop_bars=False,
             corner="top_right",
             logo_scale=1.3,
+            logo_top_pad=80,
         )
 
     def _compose_stat_card(self, bg_bytes: bytes, card: _StatCard, card_index: int) -> bytes:
@@ -590,7 +645,7 @@ class InfographicAgent:
         # BIG stat number — centre of card
         font_stat, stat_lines, stat_sz = _fit_lines(
             draw,
-            card.stat,
+            _strip_emojis(card.stat),
             _FONT_HEADLINE,
             max(160, int(REEL_H * 0.145)),
             max(100, int(REEL_H * 0.09)),
@@ -607,7 +662,7 @@ class InfographicAgent:
         # Headline — white, bold
         font_hl, hl_lines, hl_sz = _fit_lines(
             draw,
-            card.headline,
+            _strip_emojis(card.headline),
             _FONT_HEADLINE,
             max(52, int(REEL_H * 0.052)),
             max(36, int(REEL_H * 0.036)),
@@ -624,7 +679,7 @@ class InfographicAgent:
         # Context line — silver
         font_ctx, ctx_lines, ctx_sz = _fit_lines(
             draw,
-            card.context,
+            _strip_emojis(card.context),
             _FONT_BODY,
             max(34, int(REEL_H * 0.034)),
             max(24, int(REEL_H * 0.024)),
@@ -659,6 +714,7 @@ class InfographicAgent:
             crop_bars=False,
             corner="top_right",
             logo_scale=1.3,
+            logo_top_pad=80,
         )
 
     def _draw_progress_dots(self, draw, active: int, total: int) -> None:
@@ -841,7 +897,7 @@ class InfographicAgent:
 
         font_hl, hl_lines, hl_sz = _fit_lines(
             draw,
-            plan.topic_title.upper(),
+            _strip_emojis(plan.topic_title).upper(),
             _FONT_HEADLINE,
             max(58, int(H * 0.058)),
             max(40, int(H * 0.038)),
@@ -856,7 +912,7 @@ class InfographicAgent:
 
         font_hook, hook_lines, hook_sz = _fit_lines(
             draw,
-            plan.hook,
+            _strip_emojis(plan.hook),
             _FONT_TAGLINE,
             max(26, int(H * 0.026)),
             max(20, int(H * 0.020)),
@@ -918,7 +974,7 @@ class InfographicAgent:
             # Big stat number
             font_stat, stat_lines, stat_sz = _fit_lines(
                 draw,
-                card.stat,
+                _strip_emojis(card.stat),
                 _FONT_HEADLINE,
                 max(68, int(H * 0.068)),
                 max(44, int(H * 0.044)),
@@ -934,7 +990,7 @@ class InfographicAgent:
             # Headline
             font_hl2, hl2_lines, hl2_sz = _fit_lines(
                 draw,
-                card.headline,
+                _strip_emojis(card.headline),
                 _FONT_HEADLINE,
                 max(28, int(H * 0.028)),
                 max(20, int(H * 0.020)),
@@ -950,7 +1006,7 @@ class InfographicAgent:
             # Context
             font_ctx2, ctx2_lines, ctx2_sz = _fit_lines(
                 draw,
-                card.context,
+                _strip_emojis(card.context),
                 _FONT_BODY,
                 max(20, int(H * 0.020)),
                 max(15, int(H * 0.015)),
@@ -1024,3 +1080,553 @@ class InfographicAgent:
             fh.write(video_bytes)
         logger.warning("InfographicAgent: saved locally to %s (no Supabase)", local_path)
         return local_path
+
+    # ── Tips-based research & planning ─────────────────────────────────────────
+
+    def _research_and_plan_tips(self, topic: str, n_items: int = 6) -> _TipsPlan:
+        """Web-search then synthesise into a structured tips/steps plan."""
+        import anthropic as _ant
+
+        client = _ant.Anthropic(api_key=self._cfg.anthropic_api_key)
+
+        messages: list[dict] = [
+            {
+                "role": "user",
+                "content": (
+                    f"Search for the latest actionable tips, steps, or insights about: {topic}. "
+                    f"I need {n_items} clear, practical, numbered points from 2025-2026. "
+                    "Each should have a short punchy title and a 1-2 sentence explanation. "
+                    "Focus on tips that would surprise or genuinely help a non-technical person."
+                ),
+            }
+        ]
+
+        continuations = 0
+        while continuations < _MAX_WEB_CONTINUATIONS:
+            response = client.messages.create(
+                model=self._cfg.model_creative,
+                max_tokens=3000,
+                tools=[_WEB_SEARCH_TOOL],
+                messages=messages,
+            )
+            if response.stop_reason != "pause_turn":
+                break
+            messages.append({"role": "assistant", "content": response.content})
+            continuations += 1
+
+        raw_research = "\n".join(
+            getattr(b, "text", "") for b in response.content if hasattr(b, "text")
+        )
+
+        plan_tool = {
+            "name": "create_tips_plan",
+            "description": "Produce a structured infographic tips plan from research.",
+            "input_schema": _TipsPlan.model_json_schema(),
+        }
+        plan_response = client.messages.create(
+            model=self._cfg.model_creative,
+            max_tokens=1500,
+            system=(
+                "You are a social media infographic designer for Brite Tech Lifestyle — "
+                "a brand that makes technology feel exciting and accessible. "
+                f"Given research notes, produce exactly {n_items} actionable tip items. "
+                "Keep titles SHORT (max 6 words) and bodies BRIEF (max 20 words). "
+                "No emojis anywhere — brand fonts cannot render them."
+            ),
+            tools=[plan_tool],
+            tool_choice={"type": "tool", "name": "create_tips_plan"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Topic: {topic}\n\nResearch:\n{raw_research}\n\n"
+                        f"Create a tips infographic plan with exactly {n_items} items. "
+                        "Write the caption in a warm, confident voice."
+                    ),
+                }
+            ],
+        )
+        for block in plan_response.content:
+            if getattr(block, "type", None) == "tool_use" and block.name == "create_tips_plan":
+                return _TipsPlan(**block.input)
+        raise RuntimeError("InfographicAgent: tips plan tool call returned no result")
+
+    def _create_tips_posts(
+        self,
+        topic: str,
+        plan: _TipsPlan,
+        platforms: list[str] | None,
+        style: str,
+    ) -> list[Post]:
+        """Compose and upload a tips-style static infographic, return Post objects."""
+        if platforms is None:
+            platforms = [Platform.INSTAGRAM.value]
+
+        if style == "wheel":
+            bg_bytes = self._generate_background(topic, aspect_ratio="1:1")
+            image_bytes = self._compose_wheel_image(bg_bytes, plan)
+            post_type = "infographic_wheel"
+        elif style == "dark":
+            bg_bytes = self._generate_background(topic, aspect_ratio="1:1")
+            image_bytes = self._compose_dark_panels_image(bg_bytes, plan)
+            post_type = "infographic_dark"
+        else:  # light
+            image_bytes = self._compose_light_magazine_image(plan)
+            post_type = "infographic_light"
+
+        logger.info("InfographicAgent: composed %s image (%d bytes)", style, len(image_bytes))
+
+        image_url = self._upload_image(image_bytes, topic)
+        if not image_url:
+            raise RuntimeError(f"InfographicAgent: {style} image upload failed")
+
+        posts: list[Post] = []
+        for plat in platforms:
+            post = Post(
+                pillar="AI Guide",
+                platform=plat,
+                topic=topic,
+                title=plan.topic_title,
+                caption=plan.caption,
+                hashtags=plan.hashtags,
+                thumbnail_url=image_url,
+                post_type=post_type,
+                status=PostStatus.CONTENT_READY.value,
+            )
+            posts.append(post)
+            logger.info("InfographicAgent: created %s %s post %s", plat, post_type, post.id)
+        return posts
+
+    # ── Tips-style composition ─────────────────────────────────────────────────
+
+    def _compose_wheel_image(self, bg_bytes: bytes, plan: _TipsPlan) -> bytes:
+        """1080×1080 wheel/radial diagram with numbered tip panels (Brite style)."""
+        from PIL import Image, ImageDraw, ImageFilter
+
+        from core.image_utils import _fit_lines, _load_font, add_brand_overlay
+
+        W = H = 1080
+        PAD = 28
+
+        bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((W, H), Image.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=14))
+        dark = Image.new("RGBA", (W, H), (8, 8, 22, 175))
+        comp = Image.alpha_composite(bg.convert("RGBA"), dark)
+        draw = ImageDraw.Draw(comp)
+
+        # ── Header ─────────────────────────────────────────────────────────────
+        TITLE_H = 128
+        accent0 = (90, 160, 255)
+
+        font_lbl = _load_font(_FONT_BODY, 20)
+        draw.text((PAD, PAD), "BRITE TECH LIFESTYLE", font=font_lbl, fill=(*accent0, 190))
+
+        font_hl, hl_lines, hl_sz = _fit_lines(
+            draw,
+            _strip_emojis(plan.topic_title).upper(),
+            _FONT_HEADLINE,
+            max(44, int(H * 0.044)),
+            max(30, int(H * 0.028)),
+            W - PAD * 2,
+            max_lines=2,
+        )
+        ty = PAD + 28
+        for line in hl_lines:
+            draw.text((PAD, ty), line, font=font_hl, fill=(255, 255, 255, 255))
+            ty += int(hl_sz * 1.05)
+
+        # ── Wheel geometry ─────────────────────────────────────────────────────
+        MAIN_TOP = TITLE_H + 8
+        FOOT_H = 72
+        MAIN_H = H - MAIN_TOP - FOOT_H
+
+        PANEL_W = 268
+        cx = W // 2
+        cy = MAIN_TOP + MAIN_H // 2
+        OUTER_R = 205
+        INNER_R = 62
+
+        wheel_colors = [
+            (80, 130, 255),
+            (255, 100, 50),
+            (80, 210, 90),
+            (175, 60, 220),
+            (0, 195, 210),
+            (240, 190, 0),
+        ]
+
+        n = min(6, len(plan.items))
+        sector_deg = 360.0 / n
+        for i in range(n):
+            sa = i * sector_deg - 90
+            ea = sa + sector_deg - 3
+            c = wheel_colors[i % len(wheel_colors)]
+            bbox = [cx - OUTER_R, cy - OUTER_R, cx + OUTER_R, cy + OUTER_R]
+            draw.pieslice(bbox, start=sa, end=ea, fill=(*c, 225))
+
+            # Number label inside sector at 70% radius
+            mid_rad = math.radians(sa + sector_deg / 2)
+            nx = cx + int(OUTER_R * 0.70 * math.cos(mid_rad))
+            ny = cy + int(OUTER_R * 0.70 * math.sin(mid_rad))
+            fn = _load_font(_FONT_HEADLINE, 24)
+            draw.text((nx, ny), str(i + 1), font=fn, fill=(255, 255, 255, 240), anchor="mm")
+
+        # Inner donut
+        ib = [cx - INNER_R, cy - INNER_R, cx + INNER_R, cy + INNER_R]
+        draw.ellipse(ib, fill=(10, 10, 28, 255))
+        fc = _load_font(_FONT_BODY, 15)
+        words = _strip_emojis(plan.topic_title).split()[:2]
+        cy_t = cy - (len(words) - 1) * 9
+        for w in words:
+            draw.text((cx, cy_t), w.upper(), font=fc, fill=(190, 205, 230, 220), anchor="mm")
+            cy_t += 18
+
+        # ── Side panels ────────────────────────────────────────────────────────
+        panel_h = MAIN_H // 3
+        font_pt = _load_font(_FONT_HEADLINE, 18)
+        font_pb = _load_font(_FONT_BODY, 14)
+
+        for i in range(min(6, n)):
+            tip = plan.items[i]
+            c = wheel_colors[i % len(wheel_colors)]
+            row = i % 3
+            py0 = MAIN_TOP + row * panel_h + 6
+            py1 = py0 + panel_h - 12
+
+            if i < 3:
+                px0, px1 = 4, PANEL_W - 4
+            else:
+                px0, px1 = W - PANEL_W + 4, W - 4
+
+            pl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ImageDraw.Draw(pl).rounded_rectangle(
+                [(px0, py0), (px1, py1)], radius=8, fill=(*c, 28), outline=(*c, 100), width=2
+            )
+            comp = Image.alpha_composite(comp, pl)
+            draw = ImageDraw.Draw(comp)
+
+            # Number circle
+            nx2 = px0 + 18
+            ny2 = py0 + 18
+            draw.ellipse([(nx2 - 11, ny2 - 11), (nx2 + 11, ny2 + 11)], fill=(*c, 200))
+            draw.text(
+                (nx2, ny2),
+                str(i + 1),
+                font=_load_font(_FONT_HEADLINE, 14),
+                fill=(255, 255, 255, 255),
+                anchor="mm",
+            )
+
+            # Tip title
+            tx = px0 + 36
+            inner_w = (px1 - px0) - 42
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 18, 14, inner_w, max_lines=2
+            )
+            ty2 = py0 + 8
+            for line in t_lines:
+                draw.text((tx, ty2), line, font=font_pt, fill=(255, 255, 255, 240))
+                ty2 += int(t_sz * 1.1)
+
+            # Tip body
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 14, 12, (px1 - px0) - 12, max_lines=3
+            )
+            ty2 += 3
+            for line in b_lines:
+                draw.text((px0 + 8, ty2), line, font=font_pb, fill=(170, 180, 200, 195))
+                ty2 += int(b_sz * 1.25)
+
+        # ── Footer ─────────────────────────────────────────────────────────────
+        fh2 = _load_font(_FONT_BODY, 20)
+        draw.text((PAD, H - 44), "@britetechlifestyle", font=fh2, fill=(140, 155, 180, 190))
+
+        out = io.BytesIO()
+        comp.convert("RGB").save(out, format="PNG")
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )
+
+    def _compose_dark_panels_image(self, bg_bytes: bytes, plan: _TipsPlan) -> bytes:
+        """1080×1080 dark numbered panels (like screenshot 3 style)."""
+        from PIL import Image, ImageDraw
+
+        from core.image_utils import _fit_lines, _load_font, add_brand_overlay
+
+        W = H = 1080
+        PAD = 28
+        HEADER_H = 185
+        GAP = 10
+
+        bg = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((W, H), Image.LANCZOS)
+        dark = Image.new("RGBA", (W, H), (6, 8, 22, 210))
+        comp = Image.alpha_composite(bg.convert("RGBA"), dark)
+        draw = ImageDraw.Draw(comp)
+
+        # ── Header ─────────────────────────────────────────────────────────────
+        accent0 = _ACCENT_PALETTE[0]
+
+        font_lbl = _load_font(_FONT_BODY, 22)
+        draw.text((PAD, PAD), "BRITE TECH LIFESTYLE", font=font_lbl, fill=(*accent0, 200))
+
+        font_hl, hl_lines, hl_sz = _fit_lines(
+            draw,
+            _strip_emojis(plan.topic_title).upper(),
+            _FONT_HEADLINE,
+            max(56, int(H * 0.056)),
+            max(38, int(H * 0.036)),
+            W - PAD * 2,
+            max_lines=2,
+        )
+        ty = PAD + 32
+        for line in hl_lines:
+            draw.text((PAD, ty), line, font=font_hl, fill=(255, 255, 255, 255))
+            ty += int(hl_sz * 1.05)
+
+        font_hook, hook_lines, _ = _fit_lines(
+            draw,
+            _strip_emojis(plan.hook),
+            _FONT_TAGLINE,
+            max(26, int(H * 0.025)),
+            max(20, int(H * 0.018)),
+            W - PAD * 2,
+            max_lines=1,
+        )
+        draw.text(
+            (PAD, ty + 4),
+            hook_lines[0] if hook_lines else "",
+            font=font_hook,
+            fill=(185, 192, 210, 210),
+        )
+
+        # Divider
+        dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(dl).line(
+            [(PAD, HEADER_H - 6), (W - PAD, HEADER_H - 6)], fill=(*accent0, 100), width=2
+        )
+        comp = Image.alpha_composite(comp, dl)
+        draw = ImageDraw.Draw(comp)
+
+        # ── 2×3 panel grid ─────────────────────────────────────────────────────
+        FOOT_H = 60
+        GRID_H = H - HEADER_H - FOOT_H
+        n_cols, n_rows = 2, 3
+        CELL_W = (W - PAD * 2 - GAP) // n_cols
+        CELL_H = (GRID_H - GAP * (n_rows - 1)) // n_rows
+
+        items = (plan.items + [None] * 6)[:6]
+        font_num_b = _load_font(_FONT_HEADLINE, 22)
+        font_title = _load_font(_FONT_HEADLINE, 22)
+        font_body = _load_font(_FONT_BODY, 16)
+
+        for idx, tip in enumerate(items):
+            if tip is None:
+                continue
+            col = idx % n_cols
+            row = idx // n_cols
+            accent = _ACCENT_PALETTE[idx % len(_ACCENT_PALETTE)]
+
+            x0 = PAD + col * (CELL_W + GAP)
+            y0 = HEADER_H + row * (CELL_H + GAP)
+            x1 = x0 + CELL_W
+            y1 = y0 + CELL_H
+
+            # Cell background
+            cb = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ImageDraw.Draw(cb).rectangle([(x0, y0), (x1, y1)], fill=(*accent, 20))
+            comp = Image.alpha_composite(comp, cb)
+
+            # Left accent strip
+            ls = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ImageDraw.Draw(ls).rectangle([(x0, y0), (x0 + 5, y1)], fill=(*accent, 255))
+            comp = Image.alpha_composite(comp, ls)
+            draw = ImageDraw.Draw(comp)
+
+            ix = x0 + 18
+            iw = CELL_W - 24
+            iy = y0 + 14
+
+            # Number badge circle
+            draw.ellipse([(ix, iy), (ix + 26, iy + 26)], fill=(*accent, 200))
+            draw.text(
+                (ix + 13, iy + 13),
+                str(idx + 1),
+                font=font_num_b,
+                fill=(255, 255, 255, 255),
+                anchor="mm",
+            )
+
+            # Tip title
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 22, 16, iw - 32, max_lines=2
+            )
+            tx = ix + 34
+            for line in t_lines:
+                draw.text((tx, iy), line, font=font_title, fill=(255, 255, 255, 255))
+                iy += int(t_sz * 1.05)
+            iy = y0 + 56
+
+            # Tip body
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 16, 13, iw, max_lines=4
+            )
+            for line in b_lines:
+                draw.text((ix, iy), line, font=font_body, fill=(170, 178, 198, 210))
+                iy += int(b_sz * 1.3)
+
+        out = io.BytesIO()
+        comp.convert("RGB").save(out, format="PNG")
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )
+
+    def _compose_light_magazine_image(self, plan: _TipsPlan) -> bytes:
+        """1080×1080 light/white magazine grid (like screenshot 4 style)."""
+        from PIL import Image, ImageDraw
+
+        from core.image_utils import _fit_lines, _load_font, add_brand_overlay
+
+        W = H = 1080
+        PAD = 32
+        HEADER_H = 168
+        GAP = 8
+        BG = (248, 248, 250)
+        DARK = (22, 22, 30)
+
+        comp = Image.new("RGBA", (W, H), (*BG, 255))
+        draw = ImageDraw.Draw(comp)
+
+        # ── Header ─────────────────────────────────────────────────────────────
+        # Very large bold black title
+        font_hl, hl_lines, hl_sz = _fit_lines(
+            draw,
+            _strip_emojis(plan.topic_title).upper(),
+            _FONT_HEADLINE,
+            max(68, int(H * 0.066)),
+            max(44, int(H * 0.040)),
+            W - PAD * 2,
+            max_lines=2,
+        )
+        ty = PAD
+        for line in hl_lines:
+            draw.text((PAD, ty), line, font=font_hl, fill=(*DARK, 255))
+            ty += int(hl_sz * 1.02)
+
+        # Coloured subtitle pill
+        accent0 = (0, 102, 204)
+        font_sub = _load_font(_FONT_BODY, 22)
+        hook_text = _strip_emojis(plan.hook)
+        sub_bbox = draw.textbbox((0, 0), hook_text, font=font_sub)
+        pill_w = sub_bbox[2] - sub_bbox[0] + 24
+        pill_h = sub_bbox[3] - sub_bbox[1] + 12
+        pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(pill_layer).rounded_rectangle(
+            [(PAD, ty + 4), (PAD + pill_w, ty + 4 + pill_h)],
+            radius=pill_h // 2,
+            fill=(*accent0, 220),
+        )
+        comp = Image.alpha_composite(comp, pill_layer)
+        draw = ImageDraw.Draw(comp)
+        draw.text((PAD + 12, ty + 4 + 6), hook_text, font=font_sub, fill=(255, 255, 255, 255))
+
+        # Divider
+        dl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(dl).line(
+            [(PAD, HEADER_H - 4), (W - PAD, HEADER_H - 4)], fill=(180, 185, 200, 150), width=2
+        )
+        comp = Image.alpha_composite(comp, dl)
+        draw = ImageDraw.Draw(comp)
+
+        # ── 2×5 grid (10 items) ─────────────────────────────────────────────────
+        FOOT_H = 55
+        GRID_H = H - HEADER_H - FOOT_H
+        n_cols, n_rows = 2, 5
+        CELL_W = (W - PAD * 2 - GAP) // n_cols
+        CELL_H = (GRID_H - GAP * (n_rows - 1)) // n_rows
+
+        num_colors = [
+            (0, 102, 204),
+            (180, 30, 180),
+            (200, 80, 0),
+            (0, 150, 80),
+            (140, 0, 200),
+            (0, 160, 190),
+            (210, 130, 0),
+            (180, 20, 60),
+            (40, 140, 0),
+            (100, 60, 200),
+        ]
+
+        items = (plan.items + [None] * 10)[:10]
+        font_num_b = _load_font(_FONT_HEADLINE, 20)
+        font_title = _load_font(_FONT_HEADLINE, 17)
+        font_body = _load_font(_FONT_BODY, 13)
+
+        for idx, tip in enumerate(items):
+            if tip is None:
+                continue
+            col = idx % n_cols
+            row = idx // n_cols
+            nc = num_colors[idx % len(num_colors)]
+
+            x0 = PAD + col * (CELL_W + GAP)
+            y0 = HEADER_H + row * (CELL_H + GAP)
+            x1 = x0 + CELL_W
+            y1 = y0 + CELL_H
+
+            # Very light cell tint + border
+            cb = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ImageDraw.Draw(cb).rectangle(
+                [(x0, y0), (x1, y1)], fill=(*nc, 8), outline=(*nc, 40), width=1
+            )
+            comp = Image.alpha_composite(comp, cb)
+            draw = ImageDraw.Draw(comp)
+
+            ix = x0 + 10
+            iw = CELL_W - 20
+            iy = y0 + 8
+
+            # Number
+            draw.text((ix, iy), str(idx + 1), font=font_num_b, fill=(*nc, 255))
+            num_bbox = draw.textbbox((0, 0), str(idx + 1), font=font_num_b)
+            tx = ix + num_bbox[2] - num_bbox[0] + 8
+
+            # Title on same line as number
+            _, t_lines, t_sz = _fit_lines(
+                draw, _strip_emojis(tip.title), _FONT_HEADLINE, 17, 13, iw - tx + ix, max_lines=2
+            )
+            for i_l, line in enumerate(t_lines):
+                draw.text(
+                    (tx, iy + i_l * int(t_sz * 1.0)), line, font=font_title, fill=(*DARK, 230)
+                )
+            iy += max(num_bbox[3] - num_bbox[1], len(t_lines) * int(t_sz * 1.0)) + 5
+
+            # Body text
+            _, b_lines, b_sz = _fit_lines(
+                draw, _strip_emojis(tip.body), _FONT_BODY, 13, 11, iw, max_lines=3
+            )
+            for line in b_lines:
+                draw.text((ix, iy), line, font=font_body, fill=(90, 95, 110, 220))
+                iy += int(b_sz * 1.3)
+
+        # @handle at bottom
+        fh2 = _load_font(_FONT_BODY, 20)
+        draw.text((PAD, H - 40), "@britetechlifestyle", font=fh2, fill=(110, 115, 130, 200))
+
+        out = io.BytesIO()
+        comp.convert("RGB").save(out, format="PNG")
+        return add_brand_overlay(
+            out.getvalue(),
+            self._cfg.brand_name,
+            crop_bars=False,
+            corner="bottom_right",
+            logo_scale=1.2,
+        )

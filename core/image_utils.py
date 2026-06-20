@@ -311,6 +311,7 @@ def add_brand_overlay(
     corner: str | None = None,
     crop_bars: bool = True,
     logo_scale: float = 1.0,
+    logo_top_pad: int | None = None,
 ) -> bytes:
     """Composite the brand logo PNG onto *image_bytes*.
 
@@ -368,9 +369,10 @@ def add_brand_overlay(
     target_h = int(logo_cropped_ref.height * target_w / logo_cropped_ref.width)
 
     if corner in {"top_right", "top_left", "bottom_right", "bottom_left"}:
+        top_p = logo_top_pad if logo_top_pad is not None else _PAD
         fixed = {
-            "top_right": (width - target_w - _PAD, _PAD),
-            "top_left": (_PAD, _PAD),
+            "top_right": (width - target_w - _PAD, top_p),
+            "top_left": (_PAD, top_p),
             "bottom_right": (width - target_w - _PAD, height - target_h - _PAD),
             "bottom_left": (_PAD, height - target_h - _PAD),
         }

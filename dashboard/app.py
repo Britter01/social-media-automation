@@ -787,7 +787,10 @@ def _render_pipeline_controls(scope: str) -> None:
             "Instagram + Facebook Reels",
             "Instagram Reel only",
             "Facebook Reel only",
-            "Static Post (Instagram)",
+            "Static Grid (Instagram)",
+            "Wheel Style (Instagram)",
+            "Dark Panels (Instagram)",
+            "Light Magazine (Instagram)",
         ],
         key=f"{scope}_infog_fmt",
         label_visibility="collapsed",
@@ -796,7 +799,10 @@ def _render_pipeline_controls(scope: str) -> None:
         "Instagram + Facebook Reels": "create_infographic",
         "Instagram Reel only": "create_infographic_ig",
         "Facebook Reel only": "create_infographic_fb",
-        "Static Post (Instagram)": "create_infographic_static",
+        "Static Grid (Instagram)": "create_infographic_static",
+        "Wheel Style (Instagram)": "create_infographic_wheel",
+        "Dark Panels (Instagram)": "create_infographic_dark",
+        "Light Magazine (Instagram)": "create_infographic_light",
     }
     if st.button(
         "📊  Generate Infographic",
@@ -974,7 +980,14 @@ def _post_card(
 ) -> None:
     is_carousel = post.get("post_type") == "carousel"
     is_reel = post.get("post_type") in ("reel", "infographic_reel")
-    is_infographic = post.get("post_type") in ("infographic_reel", "infographic_static")
+    _INFOGRAPHIC_TYPES = (
+        "infographic_reel",
+        "infographic_static",
+        "infographic_wheel",
+        "infographic_dark",
+        "infographic_light",
+    )
+    is_infographic = post.get("post_type") in _INFOGRAPHIC_TYPES
     slides = post.get("slides") or []
     video_url = post.get("video_url", "")
     platform = post.get("platform", "")
@@ -1281,14 +1294,29 @@ with tab_scheduled:
             sched_sorted = [
                 p
                 for p in sched_sorted
-                if p.get("post_type") in ("infographic_reel", "infographic_static")
+                if p.get("post_type")
+                in (
+                    "infographic_reel",
+                    "infographic_static",
+                    "infographic_wheel",
+                    "infographic_dark",
+                    "infographic_light",
+                )
             ]
         elif _type_filter == "Standard":
             sched_sorted = [
                 p
                 for p in sched_sorted
                 if p.get("post_type")
-                not in ("carousel", "reel", "infographic_reel", "infographic_static")
+                not in (
+                    "carousel",
+                    "reel",
+                    "infographic_reel",
+                    "infographic_static",
+                    "infographic_wheel",
+                    "infographic_dark",
+                    "infographic_light",
+                )
             ]
 
         if not sched_sorted:

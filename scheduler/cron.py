@@ -1292,9 +1292,18 @@ def run_infographic_pipeline(command: str = "create_infographic") -> str:
         "create_infographic_ig": [Platform.INSTAGRAM.value],
         "create_infographic_fb": [Platform.FACEBOOK.value],
         "create_infographic_static": [Platform.INSTAGRAM.value],
+        "create_infographic_wheel": [Platform.INSTAGRAM.value],
+        "create_infographic_dark": [Platform.INSTAGRAM.value],
+        "create_infographic_light": [Platform.INSTAGRAM.value],
     }
     platforms = platform_map.get(command, None)  # None → agent picks defaults
-    fmt = "static" if command == "create_infographic_static" else "reel"
+    fmt_map = {
+        "create_infographic_static": "static",
+        "create_infographic_wheel": "wheel",
+        "create_infographic_dark": "dark",
+        "create_infographic_light": "light",
+    }
+    fmt = fmt_map.get(command, "reel")
 
     try:
         agent = InfographicAgent()
