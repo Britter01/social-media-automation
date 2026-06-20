@@ -1438,6 +1438,21 @@ with tab_scheduled:
                     with st.container(border=True):
                         _post_card(p, _sched_str(p), "scheduled")
                         pid = p.get("id", "")
+                        with st.expander("✏️ Edit caption"):
+                            cur_caption = p.get("caption") or ""
+                            new_cap = st.text_area(
+                                "Caption",
+                                value=cur_caption,
+                                key=f"edit_cap_{pid}",
+                                height=130,
+                                label_visibility="collapsed",
+                            )
+                            if st.button("Save caption", key=f"save_cap_{pid}", type="primary"):
+                                db.table("posts").update({"caption": new_cap}).eq(
+                                    "id", pid
+                                ).execute()
+                                st.cache_data.clear()
+                                st.rerun()
                         if pid and st.button(
                             "Publish now",
                             key=f"pub_{pid}",
