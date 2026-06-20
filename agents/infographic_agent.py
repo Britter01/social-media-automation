@@ -2291,8 +2291,13 @@ class InfographicAgent:
                     fill=(*sc, 255) if theme == "dark" else (*sc, 230),
                 )
                 lbl_font, lbl_lines, lbl_sz = _fit_lines(
-                    draw, _strip_emojis(stats[si].label), _FONT_BODY,
-                    max(16, int(H * 0.016)), max(11, int(H * 0.011)), sw - 16, max_lines=2
+                    draw,
+                    _strip_emojis(stats[si].label),
+                    _FONT_BODY,
+                    max(16, int(H * 0.016)),
+                    max(11, int(H * 0.011)),
+                    sw - 16,
+                    max_lines=2,
                 )
                 lbl_y = sy0 + 68
                 for lbl_ln in lbl_lines:
@@ -2300,7 +2305,10 @@ class InfographicAgent:
                     lbl_y += int(lbl_sz * 1.25)
                 if stats[si].source:
                     draw.text(
-                        (ix, lbl_y + 2), _strip_emojis(stats[si].source), font=font_ss, fill=TXT_BODY  # noqa: E501
+                        (ix, lbl_y + 2),
+                        _strip_emojis(stats[si].source),
+                        font=font_ss,
+                        fill=TXT_BODY,  # noqa: E501
                     )
             cy += 176
 
@@ -2380,8 +2388,13 @@ class InfographicAgent:
                 anchor="mm",
             )
             s3l_font, s3l_lines, s3l_sz = _fit_lines(
-                draw, _strip_emojis(stats[2].label), _FONT_BODY,
-                max(14, int(H * 0.014)), max(10, int(H * 0.010)), RIGHT_W - 20, max_lines=2
+                draw,
+                _strip_emojis(stats[2].label),
+                _FONT_BODY,
+                max(14, int(H * 0.014)),
+                max(10, int(H * 0.010)),
+                RIGHT_W - 20,
+                max_lines=2,
             )
             s3l_y = s3_y + 48 - int(s3l_sz * 0.6 * (len(s3l_lines) - 1))
             for s3l_ln in s3l_lines:
@@ -2414,8 +2427,13 @@ class InfographicAgent:
                     anchor="mm",
                 )
                 s4l_font, s4l_lines, s4l_sz = _fit_lines(
-                    draw, _strip_emojis(s4.label), _FONT_BODY,
-                    max(13, int(H * 0.013)), max(10, int(H * 0.010)), RIGHT_W - 20, max_lines=2
+                    draw,
+                    _strip_emojis(s4.label),
+                    _FONT_BODY,
+                    max(13, int(H * 0.013)),
+                    max(10, int(H * 0.010)),
+                    RIGHT_W - 20,
+                    max_lines=2,
                 )
                 s4l_y = s4_base - 8 - int(s4l_sz * 0.6 * (len(s4l_lines) - 1))
                 for s4l_ln in s4l_lines:
@@ -2535,8 +2553,13 @@ class InfographicAgent:
                     anchor="mm",
                 )
                 dbl_font, dbl_lines, dbl_sz = _fit_lines(
-                    draw, _strip_emojis(stats[si].label), _FONT_BODY,
-                    max(15, int(H * 0.015)), max(10, int(H * 0.010)), stat_w - 20, max_lines=2
+                    draw,
+                    _strip_emojis(stats[si].label),
+                    _FONT_BODY,
+                    max(15, int(H * 0.015)),
+                    max(10, int(H * 0.010)),
+                    stat_w - 20,
+                    max_lines=2,
                 )
                 dbl_y = sy0 + 118 - int(dbl_sz * 0.6 * (len(dbl_lines) - 1))
                 for dbl_ln in dbl_lines:
@@ -2843,8 +2866,13 @@ class InfographicAgent:
                     anchor="mm",
                 )
                 ebl_font, ebl_lines, ebl_sz = _fit_lines(
-                    draw, _strip_emojis(stats[si].label), _FONT_BODY,
-                    max(14, int(H * 0.014)), max(10, int(H * 0.010)), stat_w - 20, max_lines=2
+                    draw,
+                    _strip_emojis(stats[si].label),
+                    _FONT_BODY,
+                    max(14, int(H * 0.014)),
+                    max(10, int(H * 0.010)),
+                    stat_w - 20,
+                    max_lines=2,
                 )
                 ebl_y = sy0 + 106 - int(ebl_sz * 0.6 * (len(ebl_lines) - 1))
                 for ebl_ln in ebl_lines:
