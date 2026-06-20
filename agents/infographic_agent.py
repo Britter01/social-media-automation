@@ -633,7 +633,7 @@ class InfographicAgent:
         if not resp.ok:
             body = resp.text[:1000]
             logger.error("Higgsfield /text2image/soul %s error body: %s", resp.status_code, body)
-        resp.raise_for_status()
+            raise RuntimeError(f"Higgsfield {resp.status_code}: {body}")
         data = resp.json()
 
         request_id = data.get("request_id") or data.get("id")
@@ -1991,7 +1991,7 @@ class InfographicAgent:
             logger.error(
                 "Higgsfield spot /text2image/soul %s error body: %s", resp.status_code, body
             )
-        resp.raise_for_status()
+            raise RuntimeError(f"Higgsfield spot {resp.status_code}: {body}")
         data = resp.json()
         request_id = data.get("request_id") or data.get("id")
         if not request_id:
