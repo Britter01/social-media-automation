@@ -980,7 +980,13 @@ def _post_card(
 ) -> None:
     is_carousel = post.get("post_type") == "carousel"
     is_reel = post.get("post_type") in ("reel", "infographic_reel")
-    _INFOGRAPHIC_TYPES = ("infographic_reel", "infographic_static", "infographic_wheel", "infographic_dark", "infographic_light")
+    _INFOGRAPHIC_TYPES = (
+        "infographic_reel",
+        "infographic_static",
+        "infographic_wheel",
+        "infographic_dark",
+        "infographic_light",
+    )
     is_infographic = post.get("post_type") in _INFOGRAPHIC_TYPES
     slides = post.get("slides") or []
     video_url = post.get("video_url", "")
@@ -1288,9 +1294,13 @@ with tab_scheduled:
             sched_sorted = [
                 p
                 for p in sched_sorted
-                if p.get("post_type") in (
-                    "infographic_reel", "infographic_static",
-                    "infographic_wheel", "infographic_dark", "infographic_light",
+                if p.get("post_type")
+                in (
+                    "infographic_reel",
+                    "infographic_static",
+                    "infographic_wheel",
+                    "infographic_dark",
+                    "infographic_light",
                 )
             ]
         elif _type_filter == "Standard":
@@ -1299,9 +1309,13 @@ with tab_scheduled:
                 for p in sched_sorted
                 if p.get("post_type")
                 not in (
-                    "carousel", "reel",
-                    "infographic_reel", "infographic_static",
-                    "infographic_wheel", "infographic_dark", "infographic_light",
+                    "carousel",
+                    "reel",
+                    "infographic_reel",
+                    "infographic_static",
+                    "infographic_wheel",
+                    "infographic_dark",
+                    "infographic_light",
                 )
             ]
 
