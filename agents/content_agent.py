@@ -41,9 +41,9 @@ class GeneratedContent(BaseModel):
     caption: str = Field(description="The post caption in the brand voice.")
     hashtags: list[str] = Field(
         description=(
-            "Relevant hashtags WITHOUT the leading '#'. "
+            "Relevant hashtags WITHOUT the leading '#'. Maximum 5 on any platform. "
             "Count by platform: Instagram → exactly 5; Facebook → exactly 5; "
-            "Twitter → 1-3; LinkedIn → 3-5; YouTube → 5-8; TikTok → 3-5."
+            "Twitter → 1-3; LinkedIn → 3-5; YouTube → exactly 5; TikTok → 3-5."
         )
     )
 
@@ -74,7 +74,7 @@ _PLATFORM_GUIDANCE = {
     "youtube": (
         "Write a compelling, specific video title (front-load the value, avoid "
         "ALL-CAPS clickbait) and a description with a one-line hook, the value the "
-        "video delivers, and a soft CTA. 5-8 tags."
+        "video delivers, and a soft CTA. Exactly 5 tags."
     ),
     "tiktok": (
         "Casual, energetic, native to short video. A pattern-breaking hook in the "

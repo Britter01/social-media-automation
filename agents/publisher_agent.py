@@ -111,10 +111,11 @@ class PublisherAgent:
             )
             return post
 
-        # Strip emoji from caption and hashtags before any platform logic runs.
-        # This applies to every path — _ig_fb_caption, caption_with_hashtags, etc.
+        # Enforce no-emoji rule and hard 5-hashtag cap before any platform logic
+        # runs. caption_with_hashtags and _ig_fb_caption both read from these
+        # fields, so this single point covers every platform path.
         post.caption = self._strip_emoji(post.caption)
-        post.hashtags = [self._strip_emoji(h) for h in post.hashtags]
+        post.hashtags = [self._strip_emoji(h) for h in post.hashtags[:5]]
 
         post.mark(PostStatus.PUBLISHING)
 
@@ -747,7 +748,7 @@ class PublisherAgent:
                 "snippet": {
                     "title": (post.title or post.topic or post.pillar)[:100],
                     "description": post.caption_with_hashtags[:5000],
-                    "tags": post.hashtags[:15],
+                    "tags": post.hashtags[:5],
                     "categoryId": "28",  # Science & Technology
                 },
                 "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
