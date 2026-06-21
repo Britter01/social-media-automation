@@ -742,6 +742,35 @@ def _render_pipeline_controls(scope: str) -> None:
             st.caption(f"🩺 Last system check: {_diag_msg}")
         elif _diag_status in ("pending", "running"):
             st.caption("🩺 System check running…")
+
+    if st.button(
+        "#️⃣  Trim hashtags to 5",
+        use_container_width=True,
+        help=(
+            "Scans every scheduled post, pulls any hashtags written into the caption "
+            "into the hashtags field, de-duplicates, and caps each post at 5 relevant "
+            "hashtags. Captions are left as clean prose."
+        ),
+        key=f"{scope}_cleanup_hashtags",
+    ):
+        try:
+            _queue_command("cleanup_hashtags", cooldown_key="cleanup_hashtags")
+            st.info("Hashtag cleanup queued — the result appears below within ~2 min.")
+        except RuntimeError:
+            pass
+        except Exception:
+            st.error("Failed to queue hashtag cleanup.")
+
+    _htc = load_last_command_status(db, "cleanup_hashtags")
+    if _htc:
+        _htc_status = _htc.get("status", "")
+        _htc_msg = _htc.get("error") or ""
+        if _htc_status == "done" and _htc_msg:
+            st.caption(f"#️⃣ {_htc_msg}")
+        elif _htc_status in ("pending", "running"):
+            st.caption("#️⃣ Hashtag cleanup running…")
+        elif _htc_msg:
+            st.caption(f"#️⃣ Failed: {_htc_msg}")
         elif _diag_msg:
             st.caption(f"🩺 Last system check failed: {_diag_msg}")
 
