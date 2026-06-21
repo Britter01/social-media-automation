@@ -120,10 +120,10 @@ class Post:
 
     @property
     def caption_with_hashtags(self) -> str:
-        """The caption with hashtags appended, ready to publish."""
+        """The caption with hashtags appended, ready to publish. Hard-capped at 5."""
         if not self.hashtags:
             return self.caption
-        tags = " ".join(tag if tag.startswith("#") else f"#{tag}" for tag in self.hashtags)
+        tags = " ".join(tag if tag.startswith("#") else f"#{tag}" for tag in self.hashtags[:5])
         return f"{self.caption}\n\n{tags}".strip()
 
     def mark(self, status: PostStatus, error: str | None = None) -> None:
