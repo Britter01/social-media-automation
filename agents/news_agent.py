@@ -36,8 +36,12 @@ _MAX_WEB_TURNS = 5
 
 class NewsStory(BaseModel):
     headline: str = Field(description="News headline — max 10 words, factual, no hype.")
-    summary: str = Field(description="What happened — 1-2 factual sentences. Include key names and figures.")  # noqa: E501
-    insight: str = Field(description="Why it matters to everyday tech users — 1 sentence, max 12 words.")  # noqa: E501
+    summary: str = Field(
+        description="What happened — 1-2 factual sentences. Include key names and figures."
+    )  # noqa: E501
+    insight: str = Field(
+        description="Why it matters to everyday tech users — 1 sentence, max 12 words."
+    )  # noqa: E501
 
 
 class NewsCarouselPlan(BaseModel):
@@ -88,8 +92,7 @@ class NewsAgent:
         if platforms is None:
             configured = set(self._cfg.configured_platforms())
             platforms = [
-                p for p in [Platform.INSTAGRAM.value, Platform.FACEBOOK.value]
-                if p in configured
+                p for p in [Platform.INSTAGRAM.value, Platform.FACEBOOK.value] if p in configured
             ] or [Platform.INSTAGRAM.value]
 
         logger.info("NewsAgent: fetching today's AI news via web search")
@@ -165,9 +168,7 @@ class NewsAgent:
         if response is None:
             raise RuntimeError("NewsAgent: web search produced no response")
 
-        return "\n".join(
-            getattr(b, "text", "") for b in response.content if hasattr(b, "text")
-        )
+        return "\n".join(getattr(b, "text", "") for b in response.content if hasattr(b, "text"))
 
     def _plan_news(self, raw_research: str) -> NewsCarouselPlan:
         """Ask Claude to extract 3 stories and build the carousel plan."""
