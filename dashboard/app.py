@@ -918,7 +918,7 @@ def _render_pipeline_controls(scope: str) -> None:
     ):
         try:
             _queue_command("create_ai_news", cooldown_key="create_ai_news")
-            st.info("AI News carousel queued — appears in Scheduled within ~3 min.")
+            st.info("AI News carousel queued — appears in Generated tab within ~3 min.")
         except RuntimeError:
             pass
         except Exception:

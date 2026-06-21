@@ -1268,7 +1268,7 @@ def run_pending_commands() -> None:
                     _parts[0], topic=_parts[1] if len(_parts) > 1 else None
                 )
             elif command == "create_ai_news":
-                result_msg = run_daily_ai_news()
+                result_msg = run_daily_ai_news(manual=True)
             elif command.startswith("schedule_post|"):
                 result_msg = run_schedule_post(command.split("|", 1)[1])
             else:
@@ -1473,20 +1473,18 @@ def run_token_refresh() -> str:
     return msg
 
 
-def run_daily_ai_news() -> str:
-    """Fetch today's top AI news and publish a carousel to IG + FB at noon.
+def run_daily_ai_news(manual: bool = False) -> str:
+    """Fetch today's top AI news and create a carousel for IG + FB.
 
-    Generates a 5-slide news carousel (cover + 3 AI stories + CTA) using
-    live web search, then schedules it for immediate publication so it goes
-    out shortly after the noon cron fires.
+    When *manual* is True (dashboard-triggered), posts land in ``manual_ready``
+    status (Generated tab) for review before publishing. When False (noon cron),
+    posts are auto-scheduled for immediate publication.
     """
     from agents.news_agent import NewsAgent
-    from agents.scheduler_agent import SchedulerAgent
 
-    logger.info("=== Daily AI news carousel starting ===")
+    logger.info("=== Daily AI news carousel starting (manual=%s) ===", manual)
     try:
         agent = NewsAgent()
-        scheduler_agent = SchedulerAgent()
         db = get_database()
     except Exception as exc:
         logger.exception("Daily AI news: failed to initialise")
@@ -1501,26 +1499,33 @@ def run_daily_ai_news() -> str:
     if not posts:
         return "daily AI news: no posts created"
 
-    last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
+    now = datetime.now(UTC)
     created = 0
     for post in posts:
         try:
-            scheduler_agent.schedule(post, after=last_slot.get(post.platform))
-            last_slot[post.platform] = post.scheduled_time
+            if manual:
+                post.mark(PostStatus.MANUAL_READY)
+            else:
+                # Publish immediately — news is time-sensitive.
+                # Set scheduled_time to now so the publisher picks it up on its
+                # next 5-minute cycle rather than queuing it behind other posts.
+                post.scheduled_time = now
+                post.mark(PostStatus.SCHEDULED)
             db.insert(post)
             logger.info(
-                "Daily AI news: scheduled %s post %s for %s",
+                "Daily AI news: %s %s post %s",
+                "queued manual" if manual else "publishing now",
                 post.platform,
                 post.id,
-                post.scheduled_time,
             )
             created += 1
         except Exception:
             logger.exception("Daily AI news: failed to persist post %s", post.id)
 
-    ts = last_slot.get(posts[0].platform)
-    ts_str = ts.strftime("%H:%M UTC") if ts else "unknown"
-    result = f"daily AI news: {created} post(s) scheduled around {ts_str}"
+    if manual:
+        result = f"daily AI news: {created} post(s) → Generated tab"
+    else:
+        result = f"daily AI news: {created} post(s) publishing now"
     logger.info("=== Daily AI news finished: %s ===", result)
     return result
 
