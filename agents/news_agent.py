@@ -215,15 +215,20 @@ class NewsAgent:
 
     def _render_slides(self, carousel_id: str, plan: NewsCarouselPlan) -> list[dict]:
         """Render 5 branded text cards and upload each to Supabase storage."""
+        import re
         from datetime import UTC, datetime
 
-        from core.image_utils import make_dark_text_card
+        from core.image_utils import add_brand_overlay, make_dark_text_card
+
+        def _clean(text: str) -> str:
+            """Strip emoji and non-BMP characters the brand font cannot render."""
+            return re.sub(r"[^\x00-\xFF -⁯℀-⅏]", "", text).strip()
 
         today = datetime.now(UTC).strftime("%d %b %Y")
 
         all_slides = [
             {
-                "headline": plan.lead_headline.upper(),
+                "headline": _clean(plan.lead_headline).upper(),
                 "body": f"{today}  ·  3 stories shaping AI today",
                 "role": "cover",
                 "slide_number": None,
@@ -232,8 +237,8 @@ class NewsAgent:
         for i, story in enumerate(plan.stories[:3], 1):
             all_slides.append(
                 {
-                    "headline": story.headline,
-                    "body": f"{story.summary}\n\nWhy it matters: {story.insight}",
+                    "headline": _clean(story.headline),
+                    "body": _clean(f"{story.summary}\n\nWhy it matters: {story.insight}"),
                     "role": "content",
                     "slide_number": i,
                 }
@@ -260,6 +265,13 @@ class NewsAgent:
                     brand_name=self._cfg.brand_name,
                     brand_tagline=self._cfg.brand_tagline,
                     theme="blue",
+                )
+                image_bytes = add_brand_overlay(
+                    image_bytes,
+                    self._cfg.brand_name,
+                    self._cfg.brand_tagline,
+                    corner="top_right",
+                    crop_bars=False,
                 )
                 url = self._upload(carousel_id, idx, image_bytes)
                 result.append(
