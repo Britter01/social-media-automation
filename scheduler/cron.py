@@ -1269,6 +1269,8 @@ def run_pending_commands() -> None:
                 )
             elif command == "create_ai_news":
                 result_msg = run_daily_ai_news(manual=True)
+            elif command == "cleanup_hashtags":
+                result_msg = run_cleanup_hashtags()
             elif command.startswith("schedule_post|"):
                 result_msg = run_schedule_post(command.split("|", 1)[1])
             else:
@@ -1294,6 +1296,96 @@ def run_pending_commands() -> None:
         ).eq("id", cmd_id).execute()
         status_str = "failed" if error else "done"
         logger.info("Command queue: '%s' finished (status=%s)", command, status_str)
+
+
+def _normalize_post_hashtags(caption: str, field_tags: list) -> tuple[str, list[str], int]:
+    """Return (clean_caption, hashtags[:5], original_total_count).
+
+    Establishes a single source of truth for hashtags: any tags written inline
+    in the caption are extracted and removed from the prose, then merged with
+    the existing hashtags field (field tags first, inline second), de-duplicated
+    case-insensitively, and capped at 5. The published caption appends the
+    hashtags field, so this guarantees no post ever shows more than 5 tags.
+    """
+    import re
+
+    hashtag_re = re.compile(r"(?<![\w&])#([A-Za-z0-9_]+)")
+    caption = caption or ""
+    inline = hashtag_re.findall(caption)
+
+    # Strip inline hashtags from the prose and tidy the whitespace left behind.
+    clean_caption = hashtag_re.sub("", caption)
+    clean_caption = re.sub(r"[ \t]+", " ", clean_caption)
+    clean_caption = re.sub(r" *\n", "\n", clean_caption)
+    clean_caption = re.sub(r"\n{3,}", "\n\n", clean_caption).strip()
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for tag in [str(t).lstrip("#").strip() for t in (field_tags or [])] + inline:
+        key = tag.lower()
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(tag)
+
+    original_total = len(field_tags or []) + len(inline)
+    return clean_caption, merged[:5], original_total
+
+
+def run_cleanup_hashtags() -> str:
+    """Normalise scheduled posts so each has clean prose + at most 5 hashtags.
+
+    Triggered from the dashboard. Pulls every scheduled post, extracts any
+    hashtags written inline in the caption, merges them with the hashtags
+    field, de-duplicates, caps at 5, and writes the row back only if anything
+    changed. Returns a short summary for the dashboard.
+    """
+    from supabase import create_client
+
+    logger.info("=== Hashtag cleanup starting ===")
+    try:
+        sb = create_client(config.supabase_url, config.supabase_key)
+    except Exception as exc:
+        logger.exception("Hashtag cleanup: could not connect to Supabase")
+        return f"hashtag cleanup failed to initialise: {type(exc).__name__}: {exc}"[:300]
+
+    try:
+        rows = (
+            sb.table("posts")
+            .select("id, caption, hashtags")
+            .eq("status", "scheduled")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.exception("Hashtag cleanup: failed to read scheduled posts")
+        return f"hashtag cleanup read failed: {type(exc).__name__}: {exc}"[:300]
+
+    scanned = len(rows)
+    fixed = 0
+    for row in rows:
+        try:
+            old_caption = row.get("caption") or ""
+            old_tags = list(row.get("hashtags") or [])
+            new_caption, new_tags, original_total = _normalize_post_hashtags(old_caption, old_tags)
+            if new_caption == old_caption and new_tags == old_tags:
+                continue
+            sb.table("posts").update({"caption": new_caption, "hashtags": new_tags}).eq(
+                "id", row["id"]
+            ).execute()
+            fixed += 1
+            logger.info(
+                "Hashtag cleanup: post %s trimmed %d → %d tag(s)",
+                row["id"][:8],
+                original_total,
+                len(new_tags),
+            )
+        except Exception:
+            logger.exception("Hashtag cleanup: failed on post %s", row.get("id", "?")[:8])
+
+    result = f"hashtag cleanup: {fixed} of {scanned} scheduled post(s) updated"
+    logger.info("=== %s ===", result)
+    return result
 
 
 def run_cleanup_commands() -> None:
