@@ -1707,44 +1707,92 @@ with tab_generated:
                 with st.container(border=True):
                     _post_card(p, "Ready to post", "manual_ready")
                     pid = p.get("id", "")
+                    _is_tg_post = (p.get("meta") or {}).get("delivery") == "telegram"
                     if pid:
-                        btn1, btn2 = st.columns(2)
-                        with btn1:
-                            if st.button(
-                                "📤 Post Now",
-                                key=f"gen_postnow_{pid}",
-                                use_container_width=True,
-                                type="primary",
-                                help="Publish to the platform within ~2 minutes.",
-                            ):
-                                db.table("posts").update(
-                                    {
-                                        "status": "scheduled",
-                                        "scheduled_time": datetime.now(UTC).isoformat(),
-                                    }
-                                ).eq("id", pid).execute()
-                                try:
-                                    _queue_command("publish", cooldown_key=f"pub_{pid}")
-                                except RuntimeError:
-                                    pass
-                                st.session_state["_gen_hidden"].add(pid)
-                                st.cache_data.clear()
-                        with btn2:
-                            if st.button(
-                                "📅 Schedule",
-                                key=f"gen_sched_{pid}",
-                                use_container_width=True,
-                                help="Let the auto-scheduler find the next optimal slot.",
-                            ):
-                                try:
-                                    _queue_command(
-                                        f"schedule_post|{pid}",
-                                        cooldown_key=f"schedpost_{pid}",
-                                    )
+                        if _is_tg_post:
+                            # Instagram post delivered to Telegram — user posts natively
+                            st.markdown(
+                                "<div style='background:#E8F5E9;border:1px solid #A5D6A7;"
+                                "border-radius:10px;padding:8px 12px;font-size:12px;"
+                                "font-weight:600;color:#2E7D32;margin-bottom:6px'>"
+                                "📱 Sent to your Telegram — save image &amp; post in Instagram app"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
+                            btn_tg, btn_done = st.columns(2)
+                            with btn_tg:
+                                if st.button(
+                                    "🔁 Resend",
+                                    key=f"gen_resend_{pid}",
+                                    use_container_width=True,
+                                    help="Send the image and caption to Telegram again.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "scheduled",
+                                            "scheduled_time": datetime.now(UTC).isoformat(),
+                                        }
+                                    ).eq("id", pid).execute()
+                                    try:
+                                        _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    except RuntimeError:
+                                        pass
+                                    st.cache_data.clear()
+                            with btn_done:
+                                if st.button(
+                                    "✅ Mark Posted",
+                                    key=f"gen_markposted_{pid}",
+                                    use_container_width=True,
+                                    type="primary",
+                                    help="Confirm you've posted this in Instagram — marks it as published.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "published",
+                                            "published_time": datetime.now(UTC).isoformat(),
+                                            "platform_post_id": "manual",
+                                        }
+                                    ).eq("id", pid).execute()
                                     st.session_state["_gen_hidden"].add(pid)
                                     st.cache_data.clear()
-                                except RuntimeError:
-                                    st.warning("Already scheduling this post.")
+                        else:
+                            btn1, btn2 = st.columns(2)
+                            with btn1:
+                                if st.button(
+                                    "📤 Post Now",
+                                    key=f"gen_postnow_{pid}",
+                                    use_container_width=True,
+                                    type="primary",
+                                    help="Publish to the platform within ~2 minutes.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "scheduled",
+                                            "scheduled_time": datetime.now(UTC).isoformat(),
+                                        }
+                                    ).eq("id", pid).execute()
+                                    try:
+                                        _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    except RuntimeError:
+                                        pass
+                                    st.session_state["_gen_hidden"].add(pid)
+                                    st.cache_data.clear()
+                            with btn2:
+                                if st.button(
+                                    "📅 Schedule",
+                                    key=f"gen_sched_{pid}",
+                                    use_container_width=True,
+                                    help="Let the auto-scheduler find the next optimal slot.",
+                                ):
+                                    try:
+                                        _queue_command(
+                                            f"schedule_post|{pid}",
+                                            cooldown_key=f"schedpost_{pid}",
+                                        )
+                                        st.session_state["_gen_hidden"].add(pid)
+                                        st.cache_data.clear()
+                                    except RuntimeError:
+                                        st.warning("Already scheduling this post.")
                         if st.button(
                             "Dismiss",
                             key=f"gen_dismiss_{pid}",

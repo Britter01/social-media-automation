@@ -119,6 +119,13 @@ class Config:
 
     tiktok_access_token: str | None = None
 
+    # --- Telegram (Instagram manual-publish notifications) ---------------
+    # When set, Instagram posts are sent here instead of via the Graph API.
+    # Create a bot via @BotFather to get the token; get your chat_id via
+    # @myidbot. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Railway.
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
     # --- Freesound (royalty-free music for Reels) -----------------------
     # Register at freesound.org (free) and set FREESOUND_API_KEY in Railway.
     # Used by ReelsAgent to search CC0 tracks matching the content pillar.
@@ -223,6 +230,8 @@ class Config:
             youtube_client_secret=_get("YOUTUBE_CLIENT_SECRET"),
             youtube_refresh_token=_get("YOUTUBE_REFRESH_TOKEN"),
             tiktok_access_token=_get("TIKTOK_ACCESS_TOKEN"),
+            telegram_bot_token=_get("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=_get("TELEGRAM_CHAT_ID"),
             freesound_api_key=_get("FREESOUND_API_KEY"),
             timezone=_get("TIMEZONE", "Europe/London"),
             # Safe default — must explicitly set DRY_RUN=false to go live

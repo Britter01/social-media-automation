@@ -18,6 +18,7 @@ The agent is deterministic and side-effect free — it only computes a
 from __future__ import annotations
 
 import logging
+import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -98,6 +99,10 @@ class SchedulerAgent:
         # Defensive fallback: one hour out if the tables somehow miss.
         if best is None:
             best = reference + timedelta(hours=1)
+
+        # ±15 min jitter — avoids robotic on-the-clock timestamps that are
+        # a detectable bot signature on Instagram and other platforms.
+        best = best + timedelta(minutes=random.randint(-15, 15))
 
         logger.debug("Next %s slot after %s -> %s", platform, reference, best)
         return best
