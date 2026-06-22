@@ -1243,7 +1243,17 @@ def run_pending_commands() -> None:
         error: str | None = None
         result_msg: str | None = None
         try:
-            if command == "image_refresh":
+            # pause_automation / resume_automation always execute — they ARE
+            # the control plane and must never be blocked by the pause state.
+            if command == "pause_automation":
+                result_msg = run_pause_automation()
+            elif command == "resume_automation":
+                result_msg = run_resume_automation()
+            elif _is_automation_paused():
+                # All other commands are skipped while automation is paused.
+                result_msg = "automation paused — command skipped"
+                logger.info("Command queue: automation paused, skipping '%s'", command)
+            elif command == "image_refresh":
                 result_msg = run_image_refresh()
             elif command == "publish":
                 run_publisher()
@@ -1413,6 +1423,51 @@ def run_cleanup_commands() -> None:
             logger.info("Cleanup: deleted %d old pipeline_commands row(s)", deleted)
     except Exception:
         logger.exception("Cleanup: failed to prune pipeline_commands")
+
+
+_AUTOMATION_FLAG_PATH = "config/automation.paused"
+
+
+def _is_automation_paused() -> bool:
+    """Return True if the master automation kill-switch is active.
+
+    The flag is a tiny file in Supabase Storage at _AUTOMATION_FLAG_PATH.
+    Presence = paused; absence (404 / None) = running. Fail-open: if
+    Storage is unreachable we assume running so a connectivity blip never
+    permanently stalls the worker.
+    """
+    try:
+        from core.storage import get_storage
+
+        return get_storage().download(_AUTOMATION_FLAG_PATH) is not None
+    except Exception:
+        return False
+
+
+def run_pause_automation() -> str:
+    """Activate the master kill-switch — all pipeline jobs will skip."""
+    from core.storage import get_storage
+
+    logger.warning("=== AUTOMATION PAUSED by dashboard command ===")
+    try:
+        get_storage().upload(_AUTOMATION_FLAG_PATH, b"paused", content_type="text/plain")
+    except Exception as exc:
+        logger.exception("Could not write automation pause flag")
+        return f"pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+    return "automation paused — all pipeline jobs will skip until resumed"
+
+
+def run_resume_automation() -> str:
+    """Deactivate the master kill-switch — all pipeline jobs resume normally."""
+    from core.storage import get_storage
+
+    logger.warning("=== AUTOMATION RESUMED by dashboard command ===")
+    try:
+        get_storage().delete(_AUTOMATION_FLAG_PATH)
+    except Exception as exc:
+        logger.exception("Could not delete automation pause flag")
+        return f"resume flag delete failed: {type(exc).__name__}: {exc}"[:300]
+    return "automation resumed — all pipeline jobs running normally"
 
 
 def run_infographic_pipeline(
@@ -1761,6 +1816,20 @@ def _append_error(post: Post, msg: str) -> None:
         post.error = msg[:1000]
 
 
+def _paused_guard(fn):
+    """Wrap a scheduled job so it silently skips while automation is paused."""
+    from functools import wraps
+
+    @wraps(fn)
+    def _wrapper(*args, **kwargs):
+        if _is_automation_paused():
+            logger.info("Automation paused — skipping scheduled job %s", fn.__name__)
+            return None
+        return fn(*args, **kwargs)
+
+    return _wrapper
+
+
 def build_scheduler():
     """Wire up the recurring jobs."""
     from apscheduler.schedulers.blocking import BlockingScheduler
@@ -1770,7 +1839,7 @@ def build_scheduler():
     scheduler = BlockingScheduler(timezone=config.timezone)
 
     scheduler.add_job(
-        run_research_pipeline,
+        _paused_guard(run_research_pipeline),
         trigger=CronTrigger(hour=5, minute=30, timezone=config.timezone),
         id="research_pipeline",
         max_instances=1,
@@ -1779,7 +1848,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_approved_pipeline,
+        _paused_guard(run_approved_pipeline),
         trigger=IntervalTrigger(minutes=15),
         id="approved_pipeline",
         max_instances=1,
@@ -1788,7 +1857,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_content_pipeline,
+        _paused_guard(run_content_pipeline),
         trigger=CronTrigger(hour=6, minute=0, timezone=config.timezone),
         id="content_pipeline",
         max_instances=1,
@@ -1797,7 +1866,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_publisher,
+        _paused_guard(run_publisher),
         trigger=IntervalTrigger(minutes=5),
         id="publisher",
         max_instances=1,
@@ -1806,7 +1875,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_qc_retry,
+        _paused_guard(run_qc_retry),
         trigger=IntervalTrigger(hours=4),
         id="qc_retry",
         max_instances=1,
@@ -1815,7 +1884,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_image_refresh,
+        _paused_guard(run_image_refresh),
         trigger=CronTrigger(hour=2, minute=0, timezone=config.timezone),
         id="image_refresh",
         max_instances=1,
@@ -1824,7 +1893,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_analytics,
+        _paused_guard(run_analytics),
         trigger=IntervalTrigger(hours=2),
         id="analytics",
         max_instances=1,
@@ -1832,6 +1901,9 @@ def build_scheduler():
         misfire_grace_time=600,
     )
 
+    # run_pending_commands is NOT guarded — it IS the control plane.
+    # It processes pause_automation / resume_automation commands; guarding it
+    # would make the system impossible to resume without a Railway redeploy.
     scheduler.add_job(
         run_pending_commands,
         trigger=IntervalTrigger(minutes=2),
@@ -1841,6 +1913,7 @@ def build_scheduler():
         misfire_grace_time=120,
     )
 
+    # Maintenance jobs — no API cost, always run regardless of pause state.
     scheduler.add_job(
         run_cleanup_commands,
         trigger=CronTrigger(day_of_week="sun", hour=3, minute=0, timezone=config.timezone),
@@ -1851,7 +1924,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        run_weekly_strategy,
+        _paused_guard(run_weekly_strategy),
         trigger=CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=config.timezone),
         id="weekly_strategy",
         max_instances=1,
@@ -1859,8 +1932,8 @@ def build_scheduler():
         misfire_grace_time=3600,
     )
 
-    # Refresh the Meta long-lived token weekly, well before its ~60-day expiry.
-    # The job itself no-ops while the token still has plenty of headroom.
+    # Token refresh: maintenance, no content cost. Left unguarded so the
+    # 60-day token never silently lapses while automation is paused.
     scheduler.add_job(
         run_token_refresh,
         trigger=CronTrigger(day_of_week="sun", hour=4, minute=0, timezone=config.timezone),
@@ -1874,7 +1947,7 @@ def build_scheduler():
     # morning after the research pipeline (05:30) and content pipeline (06:00)
     # have already run so the infographic slot falls after regular posts.
     scheduler.add_job(
-        run_infographic_pipeline,
+        _paused_guard(run_infographic_pipeline),
         trigger=CronTrigger(hour=11, minute=0, timezone=config.timezone),
         id="infographic_pipeline",
         max_instances=1,
@@ -1885,7 +1958,7 @@ def build_scheduler():
     # Daily AI news carousel — fetches today's top 3 AI stories via web search
     # and publishes a branded 5-slide carousel to Instagram + Facebook at noon.
     scheduler.add_job(
-        run_daily_ai_news,
+        _paused_guard(run_daily_ai_news),
         trigger=CronTrigger(hour=12, minute=0, timezone=config.timezone),
         id="daily_ai_news",
         max_instances=1,
