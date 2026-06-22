@@ -119,6 +119,36 @@ _BLUE_NUM = (255, 255, 255, 20)  # white watermark, barely visible
 _BLUE_ACCENT = (255, 255, 255, 90)  # white decorative line
 _BLUE_TAGLINE = (255, 255, 255, 160)  # white, slightly faded
 
+_NEWS_DARK_NAVY = (2, 6, 22)  # very dark navy used for the bottom fade
+
+
+def make_news_bg_template(size: tuple[int, int] = (1080, 1080)) -> bytes:
+    """Render the reusable Brite Blue → dark navy gradient background for news slides.
+
+    Brite Blue (#0066CC) is vivid at the top; a smooth dark-navy fade
+    (matching the rich infographic bottom-fade aesthetic) covers the lower
+    two-thirds so white text sits on a dark, high-contrast surface.
+    Generated once, stored in Supabase, and reused on every carousel run.
+    """
+    from PIL import Image, ImageDraw
+
+    w, h = size
+    img = Image.new("RGB", (w, h), _BLUE_BG)
+
+    grad = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dg = ImageDraw.Draw(grad)
+    fade_start = int(h * 0.22)
+    for y in range(fade_start, h):
+        t = (y - fade_start) / (h - fade_start)
+        alpha = int(228 * (t**0.50))
+        dg.line([(0, y), (w, y)], fill=(*_NEWS_DARK_NAVY, alpha))
+
+    img = Image.alpha_composite(img.convert("RGBA"), grad)
+
+    out = io.BytesIO()
+    img.convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -518,6 +548,7 @@ def make_dark_text_card(
     brand_tagline: str = "",
     size: tuple[int, int] = (1080, 1080),
     theme: str = "dark",
+    bg_bytes: bytes | None = None,
 ) -> bytes:
     """Brand text card — used for numbered content slides and the CTA slide.
 
@@ -525,6 +556,8 @@ def make_dark_text_card(
       "dark"  — pure-black background, white headline, silver body (existing look)
       "light" — off-white (#F5F5F7) background, charcoal headline, slate body,
                 accent-blue decorative line — matching the brand kit light layout.
+      "blue"  — Brite Blue base; if ``bg_bytes`` is provided the pre-rendered
+                gradient template is used as the background instead of a flat colour.
 
     No Imagen call needed. The brand logo is applied separately via
     ``add_brand_overlay``. Returns PNG bytes.
@@ -547,7 +580,7 @@ def make_dark_text_card(
         text_tagline = _LIGHT_TAGLINE
     elif theme == "blue":
         bg_rgb = _BLUE_BG
-        vignette_rgb = (0, 40, 100)  # darker blue — deepens top edge
+        vignette_rgb = (0, 40, 100)
         vignette_alpha_max = 60
         accent_fill = _BLUE_ACCENT
         num_fill = _BLUE_NUM
@@ -565,16 +598,22 @@ def make_dark_text_card(
         text_tagline = (120, 128, 145, 255)
 
     w, h = size
-    img = Image.new("RGBA", (w, h), (*bg_rgb, 255))
 
-    # Subtle top-to-transparent vignette so the card isn't completely flat
-    grd = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw_g = ImageDraw.Draw(grd)
-    fade = int(h * 0.35)
-    for y in range(fade):
-        alpha = int(vignette_alpha_max * (1 - y / fade))
-        draw_g.line([(0, y), (w, y)], fill=(*vignette_rgb, alpha))
-    img = Image.alpha_composite(img, grd)
+    # ── Background ───────────────────────────────────────────────────────────
+    if bg_bytes:
+        # Use the pre-rendered gradient template — skip flat colour + vignette.
+        img = Image.open(io.BytesIO(bg_bytes)).convert("RGBA").resize((w, h), Image.LANCZOS)
+    else:
+        img = Image.new("RGBA", (w, h), (*bg_rgb, 255))
+
+        # Subtle top-to-transparent vignette so the card isn't completely flat
+        grd = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw_g = ImageDraw.Draw(grd)
+        fade = int(h * 0.35)
+        for y in range(fade):
+            alpha = int(vignette_alpha_max * (1 - y / fade))
+            draw_g.line([(0, y), (w, y)], fill=(*vignette_rgb, alpha))
+        img = Image.alpha_composite(img, grd)
 
     draw = ImageDraw.Draw(img)
     pad = int(w * 0.08)
