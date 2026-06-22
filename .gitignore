@@ -42,3 +42,4 @@ htmlcov/
 Thumbs.db
 .claude/*
 !.claude/settings.json
+!.claude/commands/

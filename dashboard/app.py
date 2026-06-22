@@ -244,20 +244,22 @@ components.html(
     .stTabs [data-baseweb="tab-border"] { display: none !important; }
     .stTabs [data-baseweb="tab-panel"] { padding-top: 8px !important; }
 
-    /* ── Buttons (always pill) — covers both regular and form-submit buttons ── */
+    /* ── Buttons — pill shape, brand spec: 14 px / 600 / 1.5 px border / lift hover ── */
     .stButton > button,
     [data-testid="stFormSubmitButton"] > button {
-      border-radius: 980px !important; font-weight: 600 !important;
+      border-radius: 9999px !important; font-weight: 600 !important; font-size: 14px !important;
+      letter-spacing: 0.01em !important;
       background: var(--white) !important; color: var(--charcoal) !important;
-      border: 1px solid var(--smoke) !important;
-      transition: border-color .2s, background .2s !important;
+      border: 1.5px solid var(--smoke) !important;
+      transition: border-color .2s, background .2s, transform .15s !important;
     }
     .stButton > button:hover,
     [data-testid="stFormSubmitButton"] > button:hover {
       background: var(--off-white) !important;
       border-color: var(--charcoal) !important; color: var(--charcoal) !important;
+      transform: translateY(-2px) !important;
     }
-    /* primary button: force white text on every child element, incl. sidebar */
+    /* primary button: black fill, white text, lift on hover */
     .stButton > button[kind="primary"],
     .stButton > button[kind="primary"] p,
     .stButton > button[kind="primary"] span,
@@ -275,7 +277,7 @@ components.html(
     [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover,
     [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover p,
     [data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"]:hover span {
-      background: var(--charcoal) !important;
+      background: var(--charcoal) !important; transform: translateY(-2px) !important;
     }
 
 
@@ -847,15 +849,19 @@ def _render_pipeline_controls(scope: str) -> None:
         )
         _infog_topic_val = _INFOG_TOPIC_MAP[_infog_topic_label]
         if _infog_topic_val == "CUSTOM":
-            _infog_topic_val = (
+            _raw_custom = (
                 st.text_input(
                     "Custom topic",
                     placeholder="e.g. AI in retail industry statistics 2026",
                     key=f"{scope}_infog_custom",
                     label_visibility="collapsed",
                 ).strip()
-                or None
+                or ""
             )
+            # Strip newlines and anything that could act as a prompt-injection
+            # boundary before the value reaches the LLM system prompt.
+            _raw_custom = " ".join(_raw_custom.splitlines())[:200]
+            _infog_topic_val = _raw_custom or None
         if st.button(
             "📊  Generate Infographic",
             use_container_width=True,
@@ -1733,11 +1739,23 @@ with tab_scheduled:
                                 label_visibility="collapsed",
                             )
                             if st.button("Save caption", key=f"save_cap_{pid}", type="primary"):
-                                db.table("posts").update({"caption": new_cap}).eq(
-                                    "id", pid
-                                ).execute()
-                                st.cache_data.clear()
-                                st.rerun()
+                                _cap_err = (
+                                    "Caption is too long (max 2 200 characters)."
+                                    if len(new_cap) > 2200
+                                    else (
+                                        "Too many hashtags (max 30)."
+                                        if new_cap.count("#") > 30
+                                        else None
+                                    )
+                                )
+                                if _cap_err:
+                                    st.error(_cap_err)
+                                else:
+                                    db.table("posts").update({"caption": new_cap}).eq(
+                                        "id", pid
+                                    ).execute()
+                                    st.cache_data.clear()
+                                    st.rerun()
                         if pid and st.button(
                             "Publish now",
                             key=f"pub_{pid}",
@@ -2387,11 +2405,6 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
   letter-spacing:-0.01em; color:#1D1D1F; line-height:1.2;
 }
 .node .sub { font-size:11px; color:#6E6E73; margin-top:4px; line-height:1.45; }
-.node .badge {
-  display:inline-block; border-radius:980px; padding:2px 10px;
-  font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
-  margin-top:6px;
-}
 .node.trigger { border-color:#B25E0940; background:#B25E090A; }
 .node.trigger .label { color:#B25E09; }
 .node.gate { border-color:#1D7A3440; background:#1D7A340A; }
@@ -2402,35 +2415,45 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 .node.publish .label { color:#0066CC; }
 .node.live { border-color:#1D7A3460; background:#1D7A340F; }
 .node.live .label { color:#1D7A34; }
-.tag { font-size:10px; color:#A1A1A6; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px; }
-.mini { font-size:11px; color:#A1A1A6; letter-spacing:0.08em; text-transform:uppercase; }
+.node.manual { border-color:#B25E0940; background:#B25E090A; }
+.node.manual .label { color:#B25E09; }
+.tag { font-size:10px; color:#A1A1A6; letter-spacing:0.18em; text-transform:uppercase; margin-bottom:4px; }
+.mini { font-size:11px; color:#A1A1A6; letter-spacing:0.18em; text-transform:uppercase; }
+.dim { color:#A1A1A6; font-weight:400; font-size:11px; }
+.sep { display:flex; align-items:center; padding:0 8px; }
+.sep-line { width:1px; height:60px; background:#E8E8ED; }
 </style>
 </head><body>
 
-<!-- Row 1: Two trigger nodes -->
+<!-- Row 1: Three content sources -->
 <div class="row">
-  <div class="node trigger">
+  <div class="node trigger" style="max-width:165px">
     <div class="tag">Daily 05:30</div>
     <div class="label">Research Agent</div>
-    <div class="sub">Searches the web for trending topics across your 5 niches. Scores each for brand fit.</div>
+    <div class="sub">Searches the web for trending topics across 5 niches. Scores each for brand fit.</div>
   </div>
-  <div style="min-width:12px"></div>
-  <div class="node trigger">
+  <div style="min-width:8px"></div>
+  <div class="node trigger" style="max-width:160px">
+    <div class="tag">Daily 11:00</div>
+    <div class="label">AI News Carousel</div>
+    <div class="sub">Auto-generates a carousel from the day's top AI &amp; tech stories.</div>
+  </div>
+  <div style="min-width:8px"></div>
+  <div class="node trigger" style="max-width:165px">
     <div class="tag">Monday 07:00</div>
     <div class="label">Weekly Strategy</div>
-    <div class="sub">Studies competitor accounts &amp; viral patterns. Generates 7 shaped ideas.</div>
+    <div class="sub">Studies competitor accounts &amp; viral patterns. Generates 7 shaped content ideas.</div>
   </div>
 </div>
 
-<!-- Arrows down -->
-<div class="row"><div class="arr">↓</div><div style="min-width:60px"></div><div class="arr">↓</div></div>
+<div class="row"><div class="arr">↓</div><div style="min-width:50px"></div><div class="arr">↓</div><div style="min-width:50px"></div><div class="arr">↓</div></div>
 
 <!-- Row 2: Approval gate -->
 <div class="row">
-  <div class="node gate" style="min-width:340px;max-width:400px">
+  <div class="node gate" style="min-width:360px;max-width:420px">
     <div class="label">Approval Queue</div>
     <div class="sub">Topics land here. <b style="color:#1D7A34">You approve or reject each one.</b><br>
-    Nothing moves forward without your sign-off. Use the Topics tab above.</div>
+    Nothing moves forward without your sign-off — use the Topics tab above.</div>
   </div>
 </div>
 
@@ -2438,40 +2461,35 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 <div class="row"><div class="mini">every 15 min</div></div>
 <div class="row"><div class="arr">↓</div></div>
 
-<!-- Row 3: Content agent -->
+<!-- Row 3: Content Agent -->
 <div class="row">
-  <div class="node" style="min-width:300px">
+  <div class="node" style="min-width:320px">
     <div class="label">Content Agent</div>
-    <div class="sub">Writes the caption, hashtags, and title for each approved topic. Uses Claude Sonnet 4.6.</div>
+    <div class="sub">Writes the caption, hashtags, and title for each approved topic. Claude Sonnet 4.6.</div>
   </div>
 </div>
 
 <div class="row"><div class="arr">↓</div></div>
 
-<!-- Cross-post note -->
-<div class="row">
-  <div class="node gate" style="min-width:340px;max-width:420px">
-    <div class="label" style="font-size:13px">Auto cross-post to Facebook</div>
-    <div class="sub">Every Instagram <b>and</b> LinkedIn topic also spawns a matching Facebook carousel — same caption, so Facebook always gets coverage.</div>
-  </div>
-</div>
-
-<div class="row"><div class="arr">↓</div></div>
-
-<!-- Row 4: Platform fork -->
+<!-- Row 4: Media fork -->
 <div class="row" style="align-items:stretch">
-  <div class="node media" style="max-width:210px">
-    <div class="tag">Instagram · Facebook</div>
+  <div class="node media" style="max-width:190px">
+    <div class="tag">Instagram</div>
+    <div class="label">Infographic Reel</div>
+    <div class="sub">Claude plans 5 stat cards; Pillow renders them on brand visuals. No image model — always generates cleanly.<br><br>
+    <span style="color:#B25E09;font-size:10px;font-weight:600">Also auto cross-posts to Facebook as a carousel.</span></div>
+  </div>
+  <div class="sep"><div class="sep-line"></div></div>
+  <div class="node media" style="max-width:190px">
+    <div class="tag">Facebook</div>
     <div class="label">Carousel Agent</div>
-    <div class="sub">Claude Sonnet plans the copy; 4 text slides (cover, 2 value cards, CTA) rendered with Pillow on brand scene backgrounds. No image model — slides can never fail to generate.</div>
+    <div class="sub">4 branded text slides (cover, 2 value cards, CTA). Claude Sonnet plans copy; Pillow renders on scene backgrounds.</div>
   </div>
-  <div style="display:flex;align-items:center;padding:0 8px">
-    <div style="width:1px;height:60px;background:#E8E8ED"></div>
-  </div>
-  <div class="node media" style="max-width:210px">
-    <div class="tag">Twitter · LinkedIn · YouTube · TikTok</div>
+  <div class="sep"><div class="sep-line"></div></div>
+  <div class="node media" style="max-width:190px">
+    <div class="tag">X · LinkedIn · TikTok · YouTube</div>
     <div class="label">Thumbnail Agent</div>
-    <div class="sub">Single editorial photo from Imagen 4 Fast. Brand logo composited in quietest corner. (YouTube/TikTok also get a HeyGen video.)</div>
+    <div class="sub">Single editorial photo from Imagen 4 Fast. Brand logo composited in quietest corner. YouTube/TikTok also get a HeyGen video.</div>
   </div>
 </div>
 
@@ -2479,9 +2497,9 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 
 <!-- Row 5: Scheduler -->
 <div class="row">
-  <div class="node publish" style="min-width:300px">
+  <div class="node publish" style="min-width:320px">
     <div class="label">Scheduler Agent</div>
-    <div class="sub">Finds the best time slot for each platform based on peak-engagement windows. Status → <b style="color:#0066CC">scheduled</b>.</div>
+    <div class="sub">Picks the best engagement window per platform, then adds a random ±15 min jitter so posts never land on the exact same clock tick.</div>
   </div>
 </div>
 
@@ -2491,41 +2509,50 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 
 <!-- Row 6: Publisher -->
 <div class="row">
-  <div class="node publish" style="min-width:300px">
+  <div class="node publish" style="min-width:320px">
     <div class="label">Publisher Agent</div>
-    <div class="sub">Checks for posts whose scheduled time has passed and sends them to each platform's API.</div>
+    <div class="sub">Claims posts whose scheduled time has passed and routes them to the right delivery channel.</div>
   </div>
 </div>
 
 <div class="row"><div class="arr">↓</div></div>
 
-<!-- Row 7: Live -->
-<div class="row">
-  <div class="node live" style="min-width:300px">
+<!-- Row 7: Delivery fork — Instagram vs everything else -->
+<div class="row" style="align-items:stretch">
+  <div class="node manual" style="max-width:220px">
+    <div class="tag">Instagram — default</div>
+    <div class="label">Telegram Notification</div>
+    <div class="sub">Post image is sent to your Telegram. <b style="color:#B25E09">You save and post natively in the Instagram app</b> — full organic reach, no API suppression.
+    <br><br>
+    <span style="color:#6E6E73;font-size:10px">API mode available in the Instagram panel (sidebar) when you need the bot to publish directly.</span></div>
+  </div>
+  <div class="sep"><div class="sep-line" style="height:80px"></div></div>
+  <div class="node live" style="max-width:220px">
+    <div class="tag">All other platforms</div>
     <div class="label">Live on Platform</div>
-    <div class="sub">Status → <b style="color:#1D7A34">published</b>. Appears in the Published tab.</div>
+    <div class="sub">Direct API publish. Status → <b style="color:#1D7A34">published</b>. Appears in the Published tab.</div>
   </div>
 </div>
 
+<!-- Background jobs -->
 <div style="margin-top:28px;padding-top:16px;border-top:1px solid #E8E8ED">
-  <div style="font-family:'Figtree',sans-serif;font-size:11px;font-weight:600;
-              color:#A1A1A6;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:12px">
+  <div style="font-size:11px;font-weight:600;color:#A1A1A6;letter-spacing:0.18em;text-transform:uppercase;margin-bottom:12px">
     Background jobs</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
-      <div class="label" style="font-size:13px">QC Retry  <span style="color:#A1A1A6;font-weight:400;font-size:11px">every 4 hrs</span></div>
+      <div class="label" style="font-size:13px">QC Retry <span class="dim">every 4 hrs</span></div>
       <div class="sub">Re-generates thumbnails that failed the image quality check.</div>
     </div>
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
-      <div class="label" style="font-size:13px">Image Refresh  <span style="color:#A1A1A6;font-weight:400;font-size:11px">daily 02:00</span></div>
-      <div class="sub">Rebuilds carousel slides (and single thumbnails) for any scheduled or failed post still missing its images.</div>
+      <div class="label" style="font-size:13px">Image Refresh <span class="dim">02:00 daily</span></div>
+      <div class="sub">Rebuilds slides &amp; thumbnails for any scheduled post still missing images.</div>
     </div>
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
-      <div class="label" style="font-size:13px">Analytics  <span style="color:#A1A1A6;font-weight:400;font-size:11px">every 2 hrs</span></div>
-      <div class="sub">Pulls reach, impressions, likes &amp; comments for each post 24 h and 7 d after publish.</div>
+      <div class="label" style="font-size:13px">Analytics <span class="dim">every 2 hrs</span></div>
+      <div class="sub">Pulls reach, impressions, likes &amp; comments at 24 h and 7 d after publish.</div>
     </div>
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
-      <div class="label" style="font-size:13px">Cleanup  <span style="color:#A1A1A6;font-weight:400;font-size:11px">Sunday 03:00</span></div>
+      <div class="label" style="font-size:13px">Cleanup <span class="dim">Sunday 03:00</span></div>
       <div class="sub">Prunes pipeline command rows older than 7 days.</div>
     </div>
   </div>
@@ -2533,7 +2560,7 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 
 </body></html>"""
 
-    components.html(FLOW_HTML, height=1140, scrolling=True)
+    components.html(FLOW_HTML, height=1380, scrolling=True)
 
 # ── Failed alert ──────────────────────────────────────────────────────────────
 

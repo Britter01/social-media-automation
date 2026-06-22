@@ -207,6 +207,16 @@ class QualityAgent:
     @staticmethod
     def _fetch_image(url: str) -> tuple[str | None, str]:
         """Download *url* and return (base64_data, media_type), or (None, '') on error."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return None, ""
+        host = parsed.hostname or ""
+        # Block SSRF to private/metadata ranges.
+        _blocked = ("127.", "10.", "192.168.", "169.254.", "::1", "localhost")
+        if any(host.startswith(p) for p in _blocked):
+            return None, ""
         try:
             with httpx.Client(timeout=30.0) as client:
                 r = client.get(url)
