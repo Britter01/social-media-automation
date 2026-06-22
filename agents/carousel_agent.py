@@ -230,14 +230,14 @@ class CarouselAgent:
           index 2 — value 02     (numbered 02)
           index 3 — CTA          (no slide number)
 
-        Carousels alternate between dark and light brand themes so the feed
-        has visual variety. The theme is chosen deterministically from
-        carousel_id so the same post always produces the same look.
+        Carousels default to the light brand theme with occasional dark posts
+        for feed variety. The theme is chosen deterministically from carousel_id
+        so the same post always produces the same look (75% light / 25% dark).
         """
         from core.image_utils import add_brand_overlay, make_dark_text_card
 
-        # Alternate dark / light per carousel (50 / 50 split, deterministic).
-        card_theme = "light" if int(carousel_id.replace("-", "")[:8], 16) % 2 == 1 else "dark"
+        # 75% light / 25% dark — deterministic from carousel_id.
+        card_theme = "dark" if int(carousel_id.replace("-", "")[:8], 16) % 4 == 0 else "light"
 
         # Flat list: cover → value 1 → value 2 → cta
         all_slides = [

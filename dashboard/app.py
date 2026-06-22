@@ -615,6 +615,39 @@ def load_last_command_status(_db, command: str, prefix: bool = False):
         return None
 
 
+def _get_automation_state(_db) -> tuple[bool, str | None]:
+    """Return (is_paused, since_str).
+
+    Checks the most recent completed pause_automation / resume_automation
+    command. If the latest is a pause, automation is paused. *since_str* is
+    a human-readable timestamp of when the state last changed, or None.
+    """
+    try:
+        result = (
+            _db.table("pipeline_commands")
+            .select("command, finished_at")
+            .in_("command", ["pause_automation", "resume_automation"])
+            .eq("status", "done")
+            .order("finished_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if not rows:
+            return False, None
+        row = rows[0]
+        paused = row["command"] == "pause_automation"
+        raw_ts = row.get("finished_at") or ""
+        try:
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            since = dt.strftime("%d %b %Y · %H:%M UTC")
+        except Exception:
+            since = raw_ts or None
+        return paused, since
+    except Exception:
+        return False, None
+
+
 analytics_rows, analytics_error = load_analytics(db)
 # Build lookup: post_id -> best snapshot (prefer 7d over 24h)
 analytics_by_post: dict[str, dict] = {}
@@ -678,6 +711,55 @@ _cmds = [
 def _render_pipeline_controls(scope: str) -> None:
     """Render the pipeline command buttons. ``scope`` keeps widget keys unique
     so the same controls can appear in the sidebar and the main body."""
+    # ── Master kill-switch ───────────────────────────────────────────────────
+    _auto_paused, _auto_since = _get_automation_state(db)
+    if _auto_paused:
+        st.markdown(
+            f"<div style='background:#FFF3CD;border:1px solid #F0AD4E;border-radius:12px;"
+            f"padding:10px 14px;margin-bottom:8px;font-size:13px;font-weight:600;"
+            f"color:#7B4F00'>⚠️ AUTOMATION PAUSED{f' since {_auto_since}' if _auto_since else ''}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "▶️  Resume Automation",
+            use_container_width=True,
+            type="primary",
+            key=f"{scope}_resume_auto",
+            help="Re-enables all scheduled and command-queue jobs.",
+        ):
+            try:
+                _queue_command("resume_automation", cooldown_key="automation_switch")
+                st.success("Resume queued — automation restarts within ~2 min.")
+            except RuntimeError:
+                pass
+            except Exception:
+                st.error("Failed to queue resume.")
+    else:
+        if st.button(
+            "🛑  Pause All Automation",
+            use_container_width=True,
+            key=f"{scope}_pause_auto",
+            help=(
+                "Master kill-switch: stops all scheduled jobs and command-queue execution "
+                "(research, content generation, image generation, publishing). Nothing will "
+                "post or call any paid API until you press Resume. Any job currently running "
+                "will finish naturally — no new jobs start after."
+            ),
+        ):
+            try:
+                _queue_command("pause_automation", cooldown_key="automation_switch")
+                st.warning("Pause queued — automation stops within ~2 min.")
+            except RuntimeError:
+                pass
+            except Exception:
+                st.error("Failed to queue pause.")
+
+    st.markdown(
+        f"<div style='border-top:1px solid {SMOKE};margin:8px 0 10px'></div>",
+        unsafe_allow_html=True,
+    )
+    # ── Regular pipeline controls ────────────────────────────────────────────
     for label, cmd, tip in _cmds:
         if st.button(label, use_container_width=True, help=tip, key=f"{scope}_{cmd}"):
             try:
@@ -1052,6 +1134,29 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+# ── Automation pause banner (shown prominently in main content when paused) ──────
+
+_banner_paused, _banner_since = _get_automation_state(db)
+if _banner_paused:
+    st.markdown(
+        f"""
+<div style="background:#FFF3CD;border:2px solid #F0AD4E;border-radius:16px;
+            padding:18px 24px;margin-bottom:12px;display:flex;
+            align-items:center;justify-content:space-between;gap:16px">
+  <div>
+    <div style="font-family:'Figtree',sans-serif;font-size:16px;font-weight:700;
+                color:#7B4F00">⚠️ Automation is paused</div>
+    <div style="font-size:13px;color:#7B4F00;margin-top:4px">
+      All scheduled jobs and pipeline commands are skipped until you resume.
+      {f"Paused since {_banner_since}." if _banner_since else ""}
+      Posts in the queue are held — nothing will post or generate.
+    </div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 # ── Pipeline controls (main body — always reachable, incl. mobile) ──────────────
 
@@ -1602,44 +1707,92 @@ with tab_generated:
                 with st.container(border=True):
                     _post_card(p, "Ready to post", "manual_ready")
                     pid = p.get("id", "")
+                    _is_tg_post = (p.get("meta") or {}).get("delivery") == "telegram"
                     if pid:
-                        btn1, btn2 = st.columns(2)
-                        with btn1:
-                            if st.button(
-                                "📤 Post Now",
-                                key=f"gen_postnow_{pid}",
-                                use_container_width=True,
-                                type="primary",
-                                help="Publish to the platform within ~2 minutes.",
-                            ):
-                                db.table("posts").update(
-                                    {
-                                        "status": "scheduled",
-                                        "scheduled_time": datetime.now(UTC).isoformat(),
-                                    }
-                                ).eq("id", pid).execute()
-                                try:
-                                    _queue_command("publish", cooldown_key=f"pub_{pid}")
-                                except RuntimeError:
-                                    pass
-                                st.session_state["_gen_hidden"].add(pid)
-                                st.cache_data.clear()
-                        with btn2:
-                            if st.button(
-                                "📅 Schedule",
-                                key=f"gen_sched_{pid}",
-                                use_container_width=True,
-                                help="Let the auto-scheduler find the next optimal slot.",
-                            ):
-                                try:
-                                    _queue_command(
-                                        f"schedule_post|{pid}",
-                                        cooldown_key=f"schedpost_{pid}",
-                                    )
+                        if _is_tg_post:
+                            # Instagram post delivered to Telegram — user posts natively
+                            st.markdown(
+                                "<div style='background:#E8F5E9;border:1px solid #A5D6A7;"
+                                "border-radius:10px;padding:8px 12px;font-size:12px;"
+                                "font-weight:600;color:#2E7D32;margin-bottom:6px'>"
+                                "📱 Sent to your Telegram — save image &amp; post in Instagram app"
+                                "</div>",
+                                unsafe_allow_html=True,
+                            )
+                            btn_tg, btn_done = st.columns(2)
+                            with btn_tg:
+                                if st.button(
+                                    "🔁 Resend",
+                                    key=f"gen_resend_{pid}",
+                                    use_container_width=True,
+                                    help="Send the image and caption to Telegram again.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "scheduled",
+                                            "scheduled_time": datetime.now(UTC).isoformat(),
+                                        }
+                                    ).eq("id", pid).execute()
+                                    try:
+                                        _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    except RuntimeError:
+                                        pass
+                                    st.cache_data.clear()
+                            with btn_done:
+                                if st.button(
+                                    "✅ Mark Posted",
+                                    key=f"gen_markposted_{pid}",
+                                    use_container_width=True,
+                                    type="primary",
+                                    help="Confirm you've posted this in Instagram — marks it as published.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "published",
+                                            "published_time": datetime.now(UTC).isoformat(),
+                                            "platform_post_id": "manual",
+                                        }
+                                    ).eq("id", pid).execute()
                                     st.session_state["_gen_hidden"].add(pid)
                                     st.cache_data.clear()
-                                except RuntimeError:
-                                    st.warning("Already scheduling this post.")
+                        else:
+                            btn1, btn2 = st.columns(2)
+                            with btn1:
+                                if st.button(
+                                    "📤 Post Now",
+                                    key=f"gen_postnow_{pid}",
+                                    use_container_width=True,
+                                    type="primary",
+                                    help="Publish to the platform within ~2 minutes.",
+                                ):
+                                    db.table("posts").update(
+                                        {
+                                            "status": "scheduled",
+                                            "scheduled_time": datetime.now(UTC).isoformat(),
+                                        }
+                                    ).eq("id", pid).execute()
+                                    try:
+                                        _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                    except RuntimeError:
+                                        pass
+                                    st.session_state["_gen_hidden"].add(pid)
+                                    st.cache_data.clear()
+                            with btn2:
+                                if st.button(
+                                    "📅 Schedule",
+                                    key=f"gen_sched_{pid}",
+                                    use_container_width=True,
+                                    help="Let the auto-scheduler find the next optimal slot.",
+                                ):
+                                    try:
+                                        _queue_command(
+                                            f"schedule_post|{pid}",
+                                            cooldown_key=f"schedpost_{pid}",
+                                        )
+                                        st.session_state["_gen_hidden"].add(pid)
+                                        st.cache_data.clear()
+                                    except RuntimeError:
+                                        st.warning("Already scheduling this post.")
                         if st.button(
                             "Dismiss",
                             key=f"gen_dismiss_{pid}",

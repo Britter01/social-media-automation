@@ -130,6 +130,13 @@ class PublisherAgent:
             post.mark(PostStatus.PUBLISHED)
             return post
 
+        # Instagram: route to Telegram for manual native publishing.
+        # Graph API-published posts receive consistently lower algorithmic reach
+        # than content uploaded natively in the app. Posts land in MANUAL_READY
+        # and Telegram delivers the image + caption to the user's phone.
+        if post.platform == Platform.INSTAGRAM.value:
+            return self._route_instagram_to_telegram(post)
+
         dispatch = {
             Platform.INSTAGRAM.value: self._publish_instagram,
             Platform.FACEBOOK.value: self._publish_facebook,
@@ -348,6 +355,20 @@ class PublisherAgent:
             )
             publish.raise_for_status()
             return publish.json().get("id", container_id)
+
+    def _route_instagram_to_telegram(self, post: Post) -> Post:
+        """Send post to Telegram and mark MANUAL_READY for native Instagram publishing."""
+        from core.telegram_notify import send_instagram_post
+
+        notified = send_instagram_post(post, self._cfg)
+        post.meta = {**post.meta, "delivery": "telegram", "telegram_notified": notified}
+        post.mark(PostStatus.MANUAL_READY)
+        logger.info(
+            "Instagram post %s queued for manual publishing (Telegram notified=%s)",
+            post.id,
+            notified,
+        )
+        return post
 
     # --- Facebook Pages (Graph API) -------------------------------------
 
