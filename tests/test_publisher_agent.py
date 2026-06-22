@@ -41,11 +41,15 @@ def test_unsupported_platform_raises(base_config):
         PublisherAgent(base_config).publish(post)
 
 
-def test_instagram_requires_thumbnail(base_config):
+def test_instagram_routes_to_telegram(base_config):
+    # Instagram is never published via the Graph API — it is always routed to
+    # Telegram for manual native posting. With no Telegram credentials set in
+    # base_config, the notification is silently skipped but the post still
+    # lands in MANUAL_READY (no error raised, no PublishError).
     post = Post(pillar="Review", platform="instagram", caption="Hi")
-    with pytest.raises(PublishError):
-        PublisherAgent(base_config).publish(post)
-    assert post.status == PostStatus.FAILED.value
+    PublisherAgent(base_config).publish(post)
+    assert post.status == PostStatus.MANUAL_READY.value
+    assert post.meta.get("delivery") == "telegram"
 
 
 def test_facebook_requires_thumbnail(base_config):
@@ -100,8 +104,11 @@ class _FakeClient:
         return _FakeResponse({"status_code": "FINISHED"})
 
 
-def test_instagram_publish_happy_path(base_config, monkeypatch):
-    monkeypatch.setattr(httpx, "Client", _FakeClient)
+def test_instagram_publish_routes_to_telegram(base_config):
+    # Instagram posts with a thumbnail are routed to Telegram (not the Graph
+    # API). With no Telegram credentials in base_config the notification is
+    # silently skipped, but the post lands in MANUAL_READY and carries the
+    # delivery metadata so the dashboard can show the right buttons.
     post = Post(
         pillar="Tech Lifestyle",
         platform="instagram",
@@ -109,8 +116,9 @@ def test_instagram_publish_happy_path(base_config, monkeypatch):
         thumbnail_url="https://qfyqoxpcoinlbxgjsihn.supabase.co/storage/v1/object/public/media/thumbnails/test.png",
     )
     PublisherAgent(base_config).publish(post)
-    assert post.status == PostStatus.PUBLISHED.value
-    assert post.platform_post_id == "published-1"
+    assert post.status == PostStatus.MANUAL_READY.value
+    assert post.meta.get("delivery") == "telegram"
+    assert post.platform_post_id is None
 
 
 def test_linkedin_publish_uses_restli_header(base_config, monkeypatch):
