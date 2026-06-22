@@ -85,6 +85,35 @@ class NewsAgent:
             except Exception:
                 logger.warning("NewsAgent: Supabase Storage unavailable", exc_info=True)
 
+    _BG_TEMPLATE_PATH = "templates/news_carousel_bg.png"
+
+    def _get_bg_template(self) -> bytes | None:
+        """Return the gradient background template bytes.
+
+        On first call the template doesn't exist yet — generate it with Pillow
+        and upload to Supabase so every subsequent call is a fast download.
+        Returns None if storage is unavailable (slides fall back to flat colour).
+        """
+        from core.image_utils import make_news_bg_template
+
+        if self._storage is None:
+            return None
+
+        cached = self._storage.download(self._BG_TEMPLATE_PATH)
+        if cached:
+            logger.info("NewsAgent: using cached background template")
+            return cached
+
+        logger.info("NewsAgent: generating background template for the first time")
+        try:
+            bg_bytes = make_news_bg_template()
+            self._storage.upload(self._BG_TEMPLATE_PATH, bg_bytes, content_type="image/png")
+            logger.info("NewsAgent: background template uploaded to %s", self._BG_TEMPLATE_PATH)
+            return bg_bytes
+        except Exception:
+            logger.exception("NewsAgent: failed to generate/upload background template")
+            return None
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def create_news_carousel(self, platforms: list[str] | None = None) -> list[Post]:
@@ -255,6 +284,9 @@ class NewsAgent:
             }
         )
 
+        # Fetch (or generate on first run) the shared gradient background template.
+        bg_bytes = self._get_bg_template()
+
         result: list[dict] = []
         for idx, slide in enumerate(all_slides):
             try:
@@ -265,6 +297,7 @@ class NewsAgent:
                     brand_name=self._cfg.brand_name,
                     brand_tagline=self._cfg.brand_tagline,
                     theme="blue",
+                    bg_bytes=bg_bytes,
                 )
                 image_bytes = add_brand_overlay(
                     image_bytes,
