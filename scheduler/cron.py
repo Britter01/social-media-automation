@@ -1253,17 +1253,19 @@ def run_pending_commands() -> None:
                 result_msg = run_instagram_api_mode()
             elif command == "instagram_telegram_mode":
                 result_msg = run_instagram_telegram_mode()
-            elif _is_automation_paused():
-                # All other commands are skipped while automation is paused.
-                result_msg = "automation paused — command skipped"
-                logger.info("Command queue: automation paused, skipping '%s'", command)
-            elif command == "image_refresh":
-                result_msg = run_image_refresh()
             elif command == "publish":
+                # Manual publish always runs — pause only stops scheduled jobs,
+                # not explicit user actions from the dashboard.
                 run_publisher()
             elif command == "all":
                 result_msg = run_image_refresh()
                 run_publisher()
+            elif _is_automation_paused():
+                # All remaining commands are skipped while automation is paused.
+                result_msg = "automation paused — command skipped"
+                logger.info("Command queue: automation paused, skipping '%s'", command)
+            elif command == "image_refresh":
+                result_msg = run_image_refresh()
             elif command == "content":
                 result_msg = run_content_pipeline(manual=True)
             elif command == "research":
