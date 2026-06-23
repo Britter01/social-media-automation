@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import signal
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import cycle
 
 from core.config import config, configure_logging
@@ -645,6 +645,34 @@ def run_image_refresh() -> str | None:
         return f"image refresh failed to initialise: {type(exc).__name__}: {exc}"[:400]
 
 
+def _reset_stuck_publishing(threshold_minutes: int = 15) -> int:
+    """Reset posts stuck in 'publishing' back to 'scheduled'.
+
+    A post stuck in 'publishing' for longer than threshold_minutes was likely
+    abandoned mid-run (process crash, network error, upsert failure). Resetting
+    it back to 'scheduled' allows the next publisher run to pick it up.
+    """
+    from supabase import create_client
+
+    try:
+        sb = create_client(config.supabase_url, config.supabase_key)
+        cutoff = (datetime.now(UTC) - timedelta(minutes=threshold_minutes)).isoformat()
+        resp = (
+            sb.table("posts")
+            .update({"status": PostStatus.SCHEDULED.value})
+            .eq("status", PostStatus.PUBLISHING.value)
+            .lt("updated_at", cutoff)
+            .execute()
+        )
+        n = len(resp.data) if resp.data else 0
+        if n:
+            logger.warning("Reset %d stuck 'publishing' post(s) back to 'scheduled'", n)
+        return n
+    except Exception:
+        logger.exception("Failed to reset stuck publishing posts")
+        return 0
+
+
 def run_publisher() -> None:
     """Publish every post whose scheduled time has arrived."""
     from agents.publisher_agent import PublisherAgent
@@ -656,6 +684,7 @@ def run_publisher() -> None:
         logger.exception("Publisher could not initialise; skipping run")
         return
 
+    _reset_stuck_publishing()
     due = db.due_for_publishing(now=datetime.now(UTC))
     if not due:
         logger.debug("No posts due for publishing")
@@ -1289,6 +1318,9 @@ def run_pending_commands() -> None:
                 result_msg = run_regen_news_bg()
             elif command == "cleanup_hashtags":
                 result_msg = run_cleanup_hashtags()
+            elif command == "reset_stuck":
+                n = _reset_stuck_publishing(threshold_minutes=0)
+                result_msg = f"reset {n} stuck post(s) from 'publishing' back to 'scheduled'"
             elif command.startswith("schedule_post|"):
                 result_msg = run_schedule_post(command.split("|", 1)[1])
             else:
@@ -1469,10 +1501,14 @@ def run_resume_automation() -> str:
 
     logger.warning("=== AUTOMATION RESUMED by dashboard command ===")
     try:
-        get_storage().delete(_AUTOMATION_FLAG_PATH)
+        ok = get_storage().delete(_AUTOMATION_FLAG_PATH)
     except Exception as exc:
         logger.exception("Could not delete automation pause flag")
-        return f"resume flag delete failed: {type(exc).__name__}: {exc}"[:300]
+        raise RuntimeError(f"resume failed — storage raised {type(exc).__name__}: {exc}") from exc
+    if not ok:
+        msg = "resume failed — could not delete pause flag from Storage; check worker logs"
+        logger.error(msg)
+        raise RuntimeError(msg)
     return "automation resumed — all pipeline jobs running normally"
 
 

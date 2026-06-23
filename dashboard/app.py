@@ -1140,6 +1140,34 @@ def _render_pipeline_controls(scope: str) -> None:
                 st.caption(f"#️⃣ Failed: {_htc_msg}")
 
         if st.button(
+            "🔄  Reset Stuck Posts",
+            use_container_width=True,
+            help=(
+                "Finds posts stuck in 'publishing' status (usually from a crash or "
+                "network error mid-publish) and resets them to 'scheduled' so they "
+                "go out on the next publish run. Safe to use any time."
+            ),
+            key=f"{scope}_reset_stuck",
+        ):
+            try:
+                _queue_command("reset_stuck", cooldown_key="reset_stuck")
+                st.info("Reset queued — stuck posts will be rescheduled within ~2 min.")
+            except RuntimeError:
+                pass
+            except Exception:
+                st.error("Failed to queue reset.")
+        _rst = load_last_command_status(db, "reset_stuck")
+        if _rst:
+            _rst_status = _rst.get("status", "")
+            _rst_msg = _rst.get("error") or ""
+            if _rst_status == "done" and _rst_msg:
+                st.caption(f"🔄 {_rst_msg}")
+            elif _rst_status in ("pending", "running"):
+                st.caption("🔄 Reset running…")
+            elif _rst_msg:
+                st.caption(f"🔄 Failed: {_rst_msg}")
+
+        if st.button(
             "🔑  Refresh Meta Token",
             use_container_width=True,
             help=(
