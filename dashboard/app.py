@@ -635,9 +635,7 @@ def _cmd_is_recent(row: dict | None, max_minutes: int = 10) -> bool:
             return False
         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            from datetime import timezone
-
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return (datetime.now(UTC) - dt).total_seconds() < max_minutes * 60
     except Exception:
         return False
