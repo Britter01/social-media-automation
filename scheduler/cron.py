@@ -673,8 +673,12 @@ def _reset_stuck_publishing(threshold_minutes: int = 15) -> int:
         return 0
 
 
-def run_publisher() -> None:
-    """Publish every post whose scheduled time has arrived."""
+def run_publisher(ignore_platform_pause: bool = False) -> None:
+    """Publish every post whose scheduled time has arrived.
+
+    *ignore_platform_pause* is True when triggered by an explicit manual
+    'Publish Now' from the dashboard — those should always go through.
+    """
     from agents.publisher_agent import PublisherAgent
 
     try:
@@ -692,6 +696,14 @@ def run_publisher() -> None:
 
     logger.info("Publishing %d due post(s)", len(due))
     for post in due:
+        if not ignore_platform_pause and _is_platform_paused(post.platform):
+            logger.info(
+                "Platform %s is paused — skipping post %s (resume to publish automatically)",
+                post.platform,
+                post.id,
+            )
+            continue
+
         try:
             if not db.claim_for_publishing(post):
                 continue
@@ -1282,13 +1294,23 @@ def run_pending_commands() -> None:
                 result_msg = run_instagram_api_mode()
             elif command == "instagram_telegram_mode":
                 result_msg = run_instagram_telegram_mode()
+            elif command == "pause_content_gen":
+                result_msg = run_pause_content_gen()
+            elif command == "resume_content_gen":
+                result_msg = run_resume_content_gen()
+            elif command.startswith("pause_platform|"):
+                _plat = command.split("|", 1)[1]
+                result_msg = run_pause_platform(_plat)
+            elif command.startswith("resume_platform|"):
+                _plat = command.split("|", 1)[1]
+                result_msg = run_resume_platform(_plat)
             elif command == "publish":
                 # Manual publish always runs — pause only stops scheduled jobs,
                 # not explicit user actions from the dashboard.
-                run_publisher()
+                run_publisher(ignore_platform_pause=True)
             elif command == "all":
                 result_msg = run_image_refresh()
-                run_publisher()
+                run_publisher(ignore_platform_pause=True)
             elif _is_automation_paused():
                 # All remaining commands are skipped while automation is paused.
                 result_msg = "automation paused — command skipped"
@@ -1464,6 +1486,8 @@ def run_cleanup_commands() -> None:
 
 
 _AUTOMATION_FLAG_PATH = "config/automation.paused"
+_CONTENT_GEN_FLAG_PATH = "config/content_generation.paused"
+_PLATFORM_PAUSE_PREFIX = "config/platform_paused."
 
 
 def _is_automation_paused() -> bool:
@@ -1510,6 +1534,115 @@ def run_resume_automation() -> str:
         logger.error(msg)
         raise RuntimeError(msg)
     return "automation resumed — all pipeline jobs running normally"
+
+
+def _is_content_gen_paused() -> bool:
+    """Return True if automated content generation jobs are paused.
+
+    Fail-open: if Storage is unreachable we assume running.
+    """
+    try:
+        from core.storage import get_storage
+
+        return get_storage().download(_CONTENT_GEN_FLAG_PATH) is not None
+    except Exception:
+        return False
+
+
+def _is_platform_paused(platform: str) -> bool:
+    """Return True if automatic scheduled publishing is paused for *platform*.
+
+    Fail-open: if Storage is unreachable we assume running.
+    Manual 'Publish Now' calls bypass this check via ignore_platform_pause.
+    """
+    try:
+        from core.storage import get_storage
+
+        return get_storage().download(f"{_PLATFORM_PAUSE_PREFIX}{platform}") is not None
+    except Exception:
+        return False
+
+
+def _content_gen_guard(fn):
+    """Wrap a content-creation job so it skips while content generation is paused."""
+    from functools import wraps
+
+    @wraps(fn)
+    def _wrapper(*args, **kwargs):
+        if _is_content_gen_paused():
+            logger.info("Content generation paused — skipping scheduled job %s", fn.__name__)
+            return None
+        return fn(*args, **kwargs)
+
+    return _wrapper
+
+
+def run_pause_content_gen() -> str:
+    """Pause automated content creation — publishing continues unaffected."""
+    from core.storage import get_storage
+
+    logger.warning("=== CONTENT GENERATION PAUSED by dashboard command ===")
+    try:
+        get_storage().upload(_CONTENT_GEN_FLAG_PATH, b"paused", content_type="text/plain")
+    except Exception as exc:
+        logger.exception("Could not write content generation pause flag")
+        return f"content gen pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+    return "content generation paused — publishing continues; manual dashboard buttons still work"
+
+
+def run_resume_content_gen() -> str:
+    """Resume automated content creation."""
+    from core.storage import get_storage
+
+    logger.warning("=== CONTENT GENERATION RESUMED by dashboard command ===")
+    try:
+        ok = get_storage().delete(_CONTENT_GEN_FLAG_PATH)
+    except Exception as exc:
+        logger.exception("Could not delete content generation pause flag")
+        raise RuntimeError(f"resume failed — storage raised {type(exc).__name__}: {exc}") from exc
+    if not ok:
+        msg = "resume failed — could not delete content gen pause flag; check worker logs"
+        logger.error(msg)
+        raise RuntimeError(msg)
+    return "content generation resumed — automated research and creation running normally"
+
+
+def run_pause_platform(platform: str) -> str:
+    """Pause automatic scheduled publishing for *platform*.
+
+    Manual 'Publish Now' from the dashboard always bypasses this.
+    """
+    from core.storage import get_storage
+
+    logger.warning("=== PLATFORM %s PUBLISHING PAUSED by dashboard command ===", platform)
+    try:
+        get_storage().upload(
+            f"{_PLATFORM_PAUSE_PREFIX}{platform}", b"paused", content_type="text/plain"
+        )
+    except Exception as exc:
+        logger.exception("Could not write platform pause flag for %s", platform)
+        return f"platform pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+    return f"{platform} automatic publishing paused — manual Publish Now still works"
+
+
+def run_resume_platform(platform: str) -> str:
+    """Resume automatic scheduled publishing for *platform*."""
+    from core.storage import get_storage
+
+    logger.warning("=== PLATFORM %s PUBLISHING RESUMED by dashboard command ===", platform)
+    try:
+        ok = get_storage().delete(f"{_PLATFORM_PAUSE_PREFIX}{platform}")
+    except Exception as exc:
+        logger.exception("Could not delete platform pause flag for %s", platform)
+        raise RuntimeError(f"resume failed — storage raised {type(exc).__name__}: {exc}") from exc
+    if not ok:
+        msg = (
+            f"resume failed — could not delete platform pause flag for {platform};"
+            " check worker logs"
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
+    return f"{platform} automatic publishing resumed — scheduled posts will go out normally"
 
 
 _INSTAGRAM_API_FLAG_PATH = "config/instagram.api_mode"
@@ -1925,7 +2058,7 @@ def build_scheduler():
     scheduler = BlockingScheduler(timezone=config.timezone)
 
     scheduler.add_job(
-        _paused_guard(run_research_pipeline),
+        _paused_guard(_content_gen_guard(run_research_pipeline)),
         trigger=CronTrigger(hour=5, minute=30, timezone=config.timezone),
         id="research_pipeline",
         max_instances=1,
@@ -1934,7 +2067,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        _paused_guard(run_approved_pipeline),
+        _paused_guard(_content_gen_guard(run_approved_pipeline)),
         trigger=IntervalTrigger(minutes=15),
         id="approved_pipeline",
         max_instances=1,
@@ -1943,7 +2076,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        _paused_guard(run_content_pipeline),
+        _paused_guard(_content_gen_guard(run_content_pipeline)),
         trigger=CronTrigger(hour=6, minute=0, timezone=config.timezone),
         id="content_pipeline",
         max_instances=1,
@@ -2010,7 +2143,7 @@ def build_scheduler():
     )
 
     scheduler.add_job(
-        _paused_guard(run_weekly_strategy),
+        _paused_guard(_content_gen_guard(run_weekly_strategy)),
         trigger=CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=config.timezone),
         id="weekly_strategy",
         max_instances=1,
@@ -2033,7 +2166,7 @@ def build_scheduler():
     # morning after the research pipeline (05:30) and content pipeline (06:00)
     # have already run so the infographic slot falls after regular posts.
     scheduler.add_job(
-        _paused_guard(run_infographic_pipeline),
+        _paused_guard(_content_gen_guard(run_infographic_pipeline)),
         trigger=CronTrigger(hour=11, minute=0, timezone=config.timezone),
         id="infographic_pipeline",
         max_instances=1,
@@ -2044,7 +2177,7 @@ def build_scheduler():
     # Daily AI news carousel — fetches today's top 3 AI stories via web search
     # and publishes a branded 5-slide carousel to Instagram + Facebook at noon.
     scheduler.add_job(
-        _paused_guard(run_daily_ai_news),
+        _paused_guard(_content_gen_guard(run_daily_ai_news)),
         trigger=CronTrigger(hour=12, minute=0, timezone=config.timezone),
         id="daily_ai_news",
         max_instances=1,

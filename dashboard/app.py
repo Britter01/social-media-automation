@@ -682,6 +682,66 @@ def _get_instagram_mode(_db) -> tuple[bool, str | None]:
         return False, None
 
 
+_SELECTIVE_PLATFORMS = ["instagram", "facebook", "twitter", "linkedin", "youtube", "tiktok"]
+
+
+def _get_selective_pause_states(_db) -> dict[str, tuple[bool, str | None]]:
+    """Return current selective pause states for content generation and per-platform publishing.
+
+    Keys: 'content_gen', 'instagram', 'facebook', 'twitter', 'linkedin', 'youtube', 'tiktok'.
+    Values: (is_paused, since_str).
+    Single DB query for efficiency.
+    """
+    _cmds = (
+        ["pause_content_gen", "resume_content_gen"]
+        + [f"pause_platform|{p}" for p in _SELECTIVE_PLATFORMS]
+        + [f"resume_platform|{p}" for p in _SELECTIVE_PLATFORMS]
+    )
+    try:
+        rows = (
+            _db.table("pipeline_commands")
+            .select("command, finished_at")
+            .in_("command", _cmds)
+            .eq("status", "done")
+            .order("finished_at", desc=True)
+            .limit(100)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+
+    seen: set[str] = set()
+    states: dict[str, tuple[bool, str | None]] = {}
+
+    for row in rows:
+        cmd = row["command"]
+        raw_ts = row.get("finished_at") or ""
+        try:
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            since = dt.strftime("%d %b %Y · %H:%M UTC")
+        except Exception:
+            since = raw_ts or None
+
+        if cmd in ("pause_content_gen", "resume_content_gen"):
+            if "content_gen" not in seen:
+                seen.add("content_gen")
+                states["content_gen"] = (cmd == "pause_content_gen", since)
+        elif "|" in cmd:
+            _action, _plat = cmd.split("|", 1)
+            if _plat not in seen:
+                seen.add(_plat)
+                states[_plat] = (_action == "pause_platform", since)
+
+    # Fill defaults
+    for _p in _SELECTIVE_PLATFORMS:
+        states.setdefault(_p, (False, None))
+    states.setdefault("content_gen", (False, None))
+
+    return states
+
+
 analytics_rows, analytics_error = load_analytics(db)
 # Build lookup: post_id -> best snapshot (prefer 7d over 24h)
 analytics_by_post: dict[str, dict] = {}
@@ -769,6 +829,130 @@ def _render_pipeline_controls(scope: str) -> None:
                 pass
             except Exception:
                 st.error("Failed to queue pause.")
+
+    # ── Selective Pause — collapsed ───────────────────────────────────────────
+    with st.expander("⏸  Selective Pause", expanded=False):
+        _sel = _get_selective_pause_states(db)
+
+        # — Content generation ───────────────────────────────────────────────
+        st.markdown(
+            "<div style='font-size:10px;font-weight:600;letter-spacing:0.14em;"
+            "text-transform:uppercase;color:#888;margin-bottom:6px'>Content Generation</div>",
+            unsafe_allow_html=True,
+        )
+        _cg_paused, _cg_since = _sel["content_gen"]
+        if _cg_paused:
+            st.markdown(
+                f"<div style='background:#FFF3CD;border:1px solid #F0AD4E;border-radius:10px;"
+                f"padding:8px 12px;font-size:12px;font-weight:600;color:#7B4F00;"
+                f"margin-bottom:6px'>⏸ Content creation paused"
+                f"{f' · {_cg_since}' if _cg_since else ''}</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "▶️  Resume Content Creation",
+                use_container_width=True,
+                type="primary",
+                key=f"{scope}_resume_cg",
+                help="Re-enables automated research and content generation pipelines.",
+            ):
+                try:
+                    _queue_command("resume_content_gen", cooldown_key="cg_switch")
+                    st.success("Resume queued — content creation restarts within ~2 min.")
+                except RuntimeError:
+                    pass
+                except Exception:
+                    st.error("Failed to queue command.")
+        else:
+            if st.button(
+                "⏸  Pause Content Creation",
+                use_container_width=True,
+                key=f"{scope}_pause_cg",
+                help=(
+                    "Stops automated research, content pipeline, infographics, AI news "
+                    "and weekly strategy. Publishing continues normally. Manual dashboard "
+                    "buttons (Generate Infographic etc.) still work."
+                ),
+            ):
+                try:
+                    _queue_command("pause_content_gen", cooldown_key="cg_switch")
+                    st.warning("Pause queued — content creation stops within ~2 min.")
+                except RuntimeError:
+                    pass
+                except Exception:
+                    st.error("Failed to queue command.")
+
+        st.markdown(
+            "<div style='height:1px;background:#E8E8ED;margin:10px 0'></div>",
+            unsafe_allow_html=True,
+        )
+
+        # — Per-platform publishing ──────────────────────────────────────────
+        st.markdown(
+            "<div style='font-size:10px;font-weight:600;letter-spacing:0.14em;"
+            "text-transform:uppercase;color:#888;margin-bottom:6px'>Platform Publishing</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Pauses automatic scheduled posts. Manual Publish Now always works.")
+
+        _PLATFORM_LABELS = {
+            "instagram": "Instagram",
+            "facebook": "Facebook",
+            "twitter": "X / Twitter",
+            "linkedin": "LinkedIn",
+            "youtube": "YouTube",
+            "tiktok": "TikTok",
+        }
+        for _plat, _plat_label in _PLATFORM_LABELS.items():
+            _plat_paused, _plat_since = _sel.get(_plat, (False, None))
+            _col_a, _col_b = st.columns([3, 2])
+            with _col_a:
+                if _plat_paused:
+                    st.markdown(
+                        f"<div style='font-size:13px;font-weight:600;color:#7B4F00;"
+                        f"line-height:2.2'>{_plat_label} ⏸</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='font-size:13px;font-weight:400;color:#1D1D1F;"
+                        f"line-height:2.2'>{_plat_label}</div>",
+                        unsafe_allow_html=True,
+                    )
+            with _col_b:
+                if _plat_paused:
+                    if st.button(
+                        "▶ Resume",
+                        key=f"{scope}_resume_plat_{_plat}",
+                        use_container_width=True,
+                        type="primary",
+                    ):
+                        try:
+                            _queue_command(
+                                f"resume_platform|{_plat}",
+                                cooldown_key=f"plat_{_plat}",
+                            )
+                            st.success(f"{_plat_label} resumed.")
+                        except RuntimeError:
+                            pass
+                        except Exception:
+                            st.error("Failed to queue command.")
+                else:
+                    if st.button(
+                        "⏸ Pause",
+                        key=f"{scope}_pause_plat_{_plat}",
+                        use_container_width=True,
+                    ):
+                        try:
+                            _queue_command(
+                                f"pause_platform|{_plat}",
+                                cooldown_key=f"plat_{_plat}",
+                            )
+                            st.warning(f"{_plat_label} publishing paused.")
+                        except RuntimeError:
+                            pass
+                        except Exception:
+                            st.error("Failed to queue command.")
 
     # ── Create Content — expanded by default (primary daily use) ─────────────
     with st.expander("📊  Create Content", expanded=True):
