@@ -1183,7 +1183,6 @@ def _render_pipeline_controls(scope: str) -> None:
         if st.button(
             "📊  Generate Infographic",
             use_container_width=True,
-            type="primary",
             help=(
                 "Research a trending AI/tech topic, compose 5 eye-catching stat cards using "
                 "Higgsfield visuals, and assemble them into a 15-second Reel. "
@@ -1428,6 +1427,7 @@ def _render_pipeline_controls(scope: str) -> None:
                     "📡 Switch to Direct",
                     key=f"{scope}_ptm_direct_{_ptm_plat}",
                     use_container_width=True,
+                    help=f"Publish {_ptm_label} posts automatically via the platform API again.",
                 ):
                     try:
                         _queue_command(
@@ -1450,6 +1450,7 @@ def _render_pipeline_controls(scope: str) -> None:
                     "📱 Switch to Telegram",
                     key=f"{scope}_ptm_tg_{_ptm_plat}",
                     use_container_width=True,
+                    help=f"Send future {_ptm_label} posts to Telegram for manual posting.",
                 ):
                     try:
                         _queue_command(
