@@ -834,11 +834,11 @@ def _get_selective_pause_states(_db) -> dict[str, tuple[bool, str | None]]:
     try:
         rows = (
             _db.table("pipeline_commands")
-            .select("command, finished_at")
+            .select("command, requested_at, finished_at, status")
             .in_("command", _cmds)
-            .eq("status", "done")
-            .order("finished_at", desc=True)
-            .limit(100)
+            .not_.eq("status", "failed")
+            .order("requested_at", desc=True)
+            .limit(200)
             .execute()
             .data
             or []
@@ -851,7 +851,8 @@ def _get_selective_pause_states(_db) -> dict[str, tuple[bool, str | None]]:
 
     for row in rows:
         cmd = row["command"]
-        raw_ts = row.get("finished_at") or ""
+        # Use finished_at if available (done commands), else requested_at (pending/running)
+        raw_ts = row.get("finished_at") or row.get("requested_at") or ""
         try:
             dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
             since = dt.strftime("%d %b %Y · %H:%M UTC")

@@ -72,13 +72,6 @@ def _validate_media_url(url: str | None, label: str = "url") -> str:
 logger = logging.getLogger(__name__)
 
 
-def _ensure_utc(dt: datetime) -> datetime:
-    """Return *dt* with UTC tzinfo attached; no-op if already timezone-aware."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
-
-
 class PublishError(RuntimeError):
     """Raised when a platform rejects a publish request."""
 
@@ -151,11 +144,8 @@ class PublisherAgent:
             Platform.TWITTER.value,
             Platform.LINKEDIN.value,
         ):
-            tg_since = self._get_platform_telegram_since(post.platform)
-            if tg_since is not None:
-                post_created = post.created_at
-                if post_created is None or _ensure_utc(post_created) >= tg_since:
-                    return self._route_to_telegram(post)
+            if self._get_platform_telegram_since(post.platform) is not None:
+                return self._route_to_telegram(post)
 
         dispatch = {
             Platform.INSTAGRAM.value: self._publish_instagram,
