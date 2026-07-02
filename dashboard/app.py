@@ -15,13 +15,16 @@ import base64
 import calendar
 import hmac
 import html
+import json
 import logging
 import os
 import time
+import zipfile
 from collections import Counter, defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from io import BytesIO
+from urllib.parse import unquote
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -578,6 +581,29 @@ def _supabase_sql_editor_url() -> str:
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 
+@st.cache_data(ttl=300)
+def _get_worker_platform_status() -> dict | None:
+    """Return the worker's platform status file, or None if unavailable.
+
+    The worker writes config/platform_status.json to Storage at startup,
+    listing the platforms it actually has API credentials for. Without it
+    the sidebar can't distinguish "actively publishing" from "never posts —
+    no credentials configured".
+    """
+    try:
+        bucket = st.secrets.get("SUPABASE_BUCKET") or os.getenv("SUPABASE_BUCKET", "media")
+    except (FileNotFoundError, AttributeError):
+        bucket = os.getenv("SUPABASE_BUCKET", "media")
+    try:
+        raw = db.storage.from_(bucket).download("config/platform_status.json")
+        data = json.loads(raw.decode())
+        if isinstance(data.get("configured"), list):
+            return data
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=60)
 def load_topics():
     return (
@@ -1031,7 +1057,15 @@ def _render_pipeline_controls(scope: str) -> None:
             "text-transform:uppercase;color:#888;margin-bottom:6px'>Platform Publishing</div>",
             unsafe_allow_html=True,
         )
-        st.caption("Pauses automatic scheduled posts. Manual Publish Now always works.")
+        st.caption(
+            "Pauses automatic scheduled posts. Manual Publish Now always works. "
+            "Greyed platforms have no API credentials on the worker and never post."
+        )
+
+        _worker_status = _get_worker_platform_status()
+        _configured_plats = (
+            set(_worker_status["configured"]) if _worker_status is not None else None
+        )
 
         _PLATFORM_LABELS = {
             "instagram": "Instagram",
@@ -1041,56 +1075,56 @@ def _render_pipeline_controls(scope: str) -> None:
             "youtube": "YouTube",
             "tiktok": "TikTok",
         }
+        # Full-width rows: a narrow sidebar wraps side-by-side buttons mid-word,
+        # so each platform gets a full-width button (or badge) of its own.
         for _plat, _plat_label in _PLATFORM_LABELS.items():
             _plat_paused, _plat_since = _sel.get(_plat, (False, None))
-            _col_a, _col_b = st.columns([3, 2])
-            with _col_a:
-                if _plat_paused:
-                    st.markdown(
-                        f"<div style='font-size:13px;font-weight:600;color:#7B4F00;"
-                        f"line-height:2.2'>{_plat_label} ⏸</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f"<div style='font-size:13px;font-weight:400;color:#1D1D1F;"
-                        f"line-height:2.2'>{_plat_label}</div>",
-                        unsafe_allow_html=True,
-                    )
-            with _col_b:
-                if _plat_paused:
-                    if st.button(
-                        "▶ Resume",
-                        key=f"{scope}_resume_plat_{_plat}",
-                        use_container_width=True,
-                        type="primary",
-                    ):
-                        try:
-                            _queue_command(
-                                f"resume_platform|{_plat}",
-                                cooldown_key=f"plat_{_plat}",
-                            )
-                            st.success(f"{_plat_label} resumed.")
-                        except RuntimeError:
-                            pass
-                        except Exception:
-                            st.error("Failed to queue command.")
-                else:
-                    if st.button(
-                        "⏸ Pause",
-                        key=f"{scope}_pause_plat_{_plat}",
-                        use_container_width=True,
-                    ):
-                        try:
-                            _queue_command(
-                                f"pause_platform|{_plat}",
-                                cooldown_key=f"plat_{_plat}",
-                            )
-                            st.warning(f"{_plat_label} publishing paused.")
-                        except RuntimeError:
-                            pass
-                        except Exception:
-                            st.error("Failed to queue command.")
+            # Only grey out when the worker has told us its credentials —
+            # with no status file yet, fall back to showing the buttons.
+            _not_configured = _configured_plats is not None and _plat not in _configured_plats
+            if _not_configured:
+                st.markdown(
+                    f"<div style='font-size:12px;font-weight:600;color:{SILVER};"
+                    f"border:1px solid {SMOKE};border-radius:20px;text-align:center;"
+                    f"padding:8px 10px;margin-bottom:8px;line-height:1.3' "
+                    f"title='No API credentials on the worker — this platform never "
+                    f"posts. Add its keys in Railway to enable it.'>"
+                    f"{_plat_label} — not set up</div>",
+                    unsafe_allow_html=True,
+                )
+            elif _plat_paused:
+                if st.button(
+                    f"▶ Resume {_plat_label}",
+                    key=f"{scope}_resume_plat_{_plat}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    try:
+                        _queue_command(
+                            f"resume_platform|{_plat}",
+                            cooldown_key=f"plat_{_plat}",
+                        )
+                        st.success(f"{_plat_label} resumed.")
+                    except RuntimeError:
+                        pass
+                    except Exception:
+                        st.error("Failed to queue command.")
+            else:
+                if st.button(
+                    f"⏸ Pause {_plat_label}",
+                    key=f"{scope}_pause_plat_{_plat}",
+                    use_container_width=True,
+                ):
+                    try:
+                        _queue_command(
+                            f"pause_platform|{_plat}",
+                            cooldown_key=f"plat_{_plat}",
+                        )
+                        st.warning(f"{_plat_label} publishing paused.")
+                    except RuntimeError:
+                        pass
+                    except Exception:
+                        st.error("Failed to queue command.")
 
     # ── Create Content — expanded by default (primary daily use) ─────────────
     with st.expander("📊  Create Content", expanded=True):
@@ -2657,6 +2691,222 @@ def _render_analytics_diagnostics():
     )
 
 
+# ── Storage archive & cleanup ─────────────────────────────────────────────────
+
+# Post media that can be archived once its post is finished.
+_ARCHIVE_MEDIA_FOLDERS = ("thumbnails", "reels", "carousels")
+# Never touched: config flags, cached/reused backgrounds and templates.
+_ARCHIVE_PROTECTED_PREFIXES = ("config/", "templates/", "bg_cache/", "diagnostics/")
+# Files younger than this stay — they may belong to a generation run in flight.
+_ARCHIVE_SAFETY_DAYS = 7
+
+
+def _storage_bucket_name() -> str:
+    try:
+        return st.secrets.get("SUPABASE_BUCKET") or os.getenv("SUPABASE_BUCKET", "media")
+    except (FileNotFoundError, AttributeError):
+        return os.getenv("SUPABASE_BUCKET", "media")
+
+
+def _walk_storage(prefix: str, _depth: int = 0) -> list[dict]:
+    """Recursively list files under *prefix* as [{'path', 'size', 'created_at'}]."""
+    out: list[dict] = []
+    if _depth > 3:
+        return out
+    bucket = db.storage.from_(_storage_bucket_name())
+    offset = 0
+    while True:
+        entries = (
+            bucket.list(
+                prefix,
+                {"limit": 1000, "offset": offset, "sortBy": {"column": "name", "order": "asc"}},
+            )
+            or []
+        )
+        for e in entries:
+            name = e.get("name") or ""
+            if not name:
+                continue
+            full = f"{prefix}/{name}" if prefix else name
+            if e.get("id") is None:
+                # Folder placeholder — recurse into it.
+                out.extend(_walk_storage(full, _depth + 1))
+            else:
+                meta = e.get("metadata") or {}
+                out.append(
+                    {
+                        "path": full,
+                        "size": int(meta.get("size") or 0),
+                        "created_at": e.get("created_at") or "",
+                    }
+                )
+        if len(entries) < 1000:
+            break
+        offset += len(entries)
+    return out
+
+
+def _media_paths_in_use() -> set[str]:
+    """Storage paths referenced by posts that are not finished.
+
+    Anything referenced by a draft/scheduled/generated/failed post must stay in
+    Supabase — publishing and Telegram resends fetch media by public URL.
+    Published and dismissed posts are done, so their media can be archived.
+    """
+    rows = (
+        db.table("posts")
+        .select("status, thumbnail_url, video_url, slides")
+        .not_.in_("status", ["published", "dismissed"])
+        .limit(5000)
+        .execute()
+        .data
+        or []
+    )
+    marker = f"/object/public/{_storage_bucket_name()}/"
+    used: set[str] = set()
+    for r in rows:
+        urls = [r.get("thumbnail_url"), r.get("video_url")]
+        for s in r.get("slides") or []:
+            if isinstance(s, dict):
+                urls.append(s.get("image_url"))
+        for u in urls:
+            if not u:
+                continue
+            u = str(u).split("?", 1)[0]
+            if marker in u:
+                used.add(unquote(u.split(marker, 1)[1]))
+    return used
+
+
+def _scan_archivable_media() -> list[dict]:
+    """Return media files that are safe to archive and remove from Supabase."""
+    files: list[dict] = []
+    for folder in _ARCHIVE_MEDIA_FOLDERS:
+        try:
+            files.extend(_walk_storage(folder))
+        except Exception:
+            logger.exception("Storage scan failed for folder %s", folder)
+    in_use = _media_paths_in_use()
+    cutoff = datetime.now(UTC) - timedelta(days=_ARCHIVE_SAFETY_DAYS)
+    eligible: list[dict] = []
+    for f in files:
+        if f["path"].startswith(_ARCHIVE_PROTECTED_PREFIXES):
+            continue
+        if f["path"] in in_use:
+            continue
+        try:
+            created = datetime.fromisoformat(str(f["created_at"]).replace("Z", "+00:00"))
+        except Exception:
+            continue  # unknown age — keep it, play safe
+        if created > cutoff:
+            continue
+        eligible.append(f)
+    return eligible
+
+
+def _build_archive_zip(files: list[dict]) -> tuple[bytes, list[str]]:
+    """Download *files* into a ZIP; return (zip_bytes, successfully_saved_paths).
+
+    Only paths that made it into the ZIP are ever offered for deletion.
+    """
+    buf = BytesIO()
+    bucket = db.storage.from_(_storage_bucket_name())
+    saved: list[str] = []
+    progress = st.progress(0.0, text="Downloading media…")
+    # Media is already compressed (PNG/MP4) — store, don't re-compress.
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for i, f in enumerate(files):
+            try:
+                zf.writestr(f["path"], bucket.download(f["path"]))
+                saved.append(f["path"])
+            except Exception:
+                logger.exception("Archive: failed to download %s", f["path"])
+            progress.progress((i + 1) / len(files), text=f"Downloading media… {i + 1}/{len(files)}")
+    progress.empty()
+    return buf.getvalue(), saved
+
+
+def _render_storage_cleanup():
+    st.markdown("#### 🗄 Storage archive & cleanup")
+    st.caption(
+        "Frees Supabase Storage space: media belonging to **published or dismissed** posts "
+        "is bundled into a ZIP for your hard drive, then deleted from Supabase. "
+        "Media for scheduled/generated posts, cached backgrounds, templates and config "
+        f"flags are never touched, nor is anything newer than {_ARCHIVE_SAFETY_DAYS} days. "
+        "Note: archived images will no longer preview in the Published tab."
+    )
+
+    if st.button("🔍 Scan storage for archivable media", key="arch_scan_btn"):
+        with st.spinner("Scanning Supabase Storage…"):
+            st.session_state["_arch_files"] = _scan_archivable_media()
+        st.session_state.pop("_arch_zip", None)
+        st.session_state.pop("_arch_saved", None)
+
+    _files = st.session_state.get("_arch_files")
+    if _files is None:
+        return
+    if not _files:
+        st.info("Nothing to archive — all media is still in use or too recent.")
+        return
+
+    _total_mb = sum(f["size"] for f in _files) / (1024 * 1024)
+    st.markdown(f"**{len(_files)} file(s)** can be archived — about **{_total_mb:,.0f} MB**.")
+    _by_folder = Counter(f["path"].split("/", 1)[0] for f in _files)
+    st.caption("  ·  ".join(f"{k}: {v}" for k, v in sorted(_by_folder.items())))
+
+    if "_arch_zip" not in st.session_state:
+        if st.button(f"📦 Prepare ZIP of {len(_files)} file(s)", key="arch_zip_btn"):
+            zip_bytes, saved = _build_archive_zip(_files)
+            st.session_state["_arch_zip"] = zip_bytes
+            st.session_state["_arch_saved"] = saved
+            if len(saved) < len(_files):
+                st.warning(
+                    f"{len(_files) - len(saved)} file(s) failed to download and will "
+                    "NOT be deleted."
+                )
+        # No rerun (it would bounce off this tab) — fall through if the ZIP
+        # was just built, otherwise wait for the click.
+        if "_arch_zip" not in st.session_state:
+            return
+
+    _saved = st.session_state.get("_arch_saved") or []
+    st.download_button(
+        f"⬇️ Download archive ({len(_saved)} files, "
+        f"{len(st.session_state['_arch_zip']) / (1024 * 1024):,.0f} MB)",
+        data=st.session_state["_arch_zip"],
+        file_name=f"media_archive_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.zip",
+        mime="application/zip",
+        key="arch_download_btn",
+    )
+    _confirmed = st.checkbox(
+        "I have downloaded and saved the ZIP to my computer",
+        key="arch_confirm_saved",
+    )
+    if st.button(
+        f"🗑 Delete {len(_saved)} archived file(s) from Supabase",
+        key="arch_delete_btn",
+        type="primary",
+        disabled=not _confirmed,
+    ):
+        bucket = db.storage.from_(_storage_bucket_name())
+        deleted = 0
+        errors = 0
+        for i in range(0, len(_saved), 100):
+            batch = _saved[i : i + 100]
+            try:
+                bucket.remove(batch)
+                deleted += len(batch)
+            except Exception:
+                logger.exception("Archive: failed to delete batch starting %s", batch[0])
+                errors += len(batch)
+        for k in ("_arch_files", "_arch_zip", "_arch_saved"):
+            st.session_state.pop(k, None)
+        if errors:
+            st.warning(f"Deleted {deleted} file(s); {errors} failed — scan again to retry.")
+        else:
+            st.success(f"Deleted {deleted} file(s) from Supabase Storage. 🎉")
+
+
 def _render_analytics_fetch_button():
     """Fetch button + status of the most recent analytics run, so the user can
     see whether the worker picked it up and what it returned."""
@@ -3056,6 +3306,10 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 </body></html>"""
 
     components.html(FLOW_HTML, height=1500, scrolling=False)
+
+    # ── Storage archive & cleanup ─────────────────────────────────────────────
+    st.divider()
+    _render_storage_cleanup()
 
 # ── Failed alert ──────────────────────────────────────────────────────────────
 
