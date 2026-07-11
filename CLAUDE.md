@@ -1,5 +1,11 @@
 # Claude Code Notes — social-media-bot
 
+## Project Docs on Google Drive
+
+Snapshots/exports of this repo (summary, README, calibration notes) are kept in:
+`Brite Tech Lifestyle / Claude Code Output / Social Media Automation`
+https://drive.google.com/drive/folders/1K_5i_dr2LNq_0aTYbVOQHPzjs5Q8_szm
+
 ## Screen Corner Calibration
 
 Corners for each scene are stored in `core/cover_image.py` → `_SCENE_CORNERS` as
