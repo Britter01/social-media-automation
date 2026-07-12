@@ -8,6 +8,26 @@
 
 ---
 
+## 0. Can my Claude Max plan run this instead of the API?
+
+**No — this system needs the API, and Max can't power it.** They're two different products:
+
+| | Claude **Max** (your plan) | Claude **API** (what the bot uses) |
+|---|---|---|
+| For | **You** using Claude interactively (claude.ai, Claude Desktop, Claude Code) | **Programs** calling Claude automatically |
+| Billing | Flat monthly subscription | Per‑token, pay‑as‑you‑go |
+| Credential | Your claude.ai login | An `ANTHROPIC_API_KEY` |
+| Designed for | A human at a keyboard | Unattended, scheduled, 24/7 |
+
+Three reasons Max doesn't fit **this** system:
+1. **It runs unattended, on a schedule, on a server** (05:30, 06:00, 11:00, noon…) with no human present. Max is built around *you* being the one using Claude — there's no interactive session for the bot to attach to.
+2. **The code literally calls the API** — every content step is `client.messages.create(...)` with an `ANTHROPIC_API_KEY`. That path bills the metered API. Max includes **no API credits and no API key**.
+3. **Max's usage is scoped to first‑party apps**, not "power my own always‑on posting service."
+
+**Recommended setup:** keep the bot on the **API** (it's cheap — see below), and **set a spending cap** at console.anthropic.com so you can never be surprised by a bill. The two plans coexist cleanly: **Max powers *you*** (including the Claude Code chats), **the API powers the *bot***. Reworking it to run under Max would mean re‑architecting the whole thing around Claude Code / the Agent SDK — lots of work, fighting interactive rate limits, to save ~$15/month. Not worth it.
+
+---
+
 ## 1. Bottom line
 
 | | Estimate |
