@@ -1,5 +1,15 @@
 # Claude Code Notes — social-media-bot
 
+## Git workflow
+
+Commit changes **directly to `main`**. Do **not** open feature branches or pull
+requests unless explicitly asked — the maintainer prefers to avoid manual merges.
+
+In sandboxed Claude Code web sessions a normal `git push` is blocked by the
+egress proxy, so commit via the GitHub API tools (`create_or_update_file` /
+`push_files`) — these write straight to `main`. After committing, run
+`git pull origin main` to bring the local sandbox in sync.
+
 ## Screen Corner Calibration
 
 Corners for each scene are stored in `core/cover_image.py` → `_SCENE_CORNERS` as
