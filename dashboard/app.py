@@ -2518,6 +2518,27 @@ with tab_generated:
         st.cache_data.clear()
         st.toast("✅ Marked as posted.")
 
+    # Bulk "Mark all as posted" — handled here in the pre-pass (before any card
+    # renders) so it can never mutate a live container mid-draw.
+    if st.session_state.get("gen_markall"):
+        _ids = [
+            g.get("id")
+            for g in generated
+            if g.get("id") and g.get("id") not in st.session_state["_gen_hidden"]
+        ]
+        if _ids:
+            db.table("posts").update(
+                {
+                    "status": "published",
+                    "published_time": datetime.now(UTC).isoformat(),
+                    "platform_post_id": "manual",
+                }
+            ).in_("id", _ids).execute()
+            for _i in _ids:
+                st.session_state["_gen_hidden"].add(_i)
+            st.cache_data.clear()
+            st.toast(f"✅ Marked {len(_ids)} post(s) as posted.")
+
     for _gp in generated:
         _gpid = _gp.get("id", "")
         if not _gpid or _gpid in st.session_state["_gen_hidden"]:
@@ -2568,12 +2589,34 @@ with tab_generated:
             "it will appear here for you to review before posting."
         )
     else:
-        st.markdown(
-            f"<div style='font-size:13px;color:{SLATE};margin-bottom:12px'>"
-            f"{len(visible_generated)} post(s) ready — choose to post immediately or "
-            f"add to the schedule queue.</div>",
-            unsafe_allow_html=True,
-        )
+
+        def _gen_time_str(_p: dict) -> str:
+            """Human 'ready since' timestamp from the post's created_at."""
+            raw = _p.get("created_at") or _p.get("updated_at") or ""
+            try:
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                return f"Ready · {dt.strftime('%d %b %H:%M')} UTC"
+            except Exception:
+                return "Ready to post"
+
+        _hdr_l, _hdr_r = st.columns([3, 1])
+        with _hdr_l:
+            st.markdown(
+                f"<div style='font-size:13px;color:{SLATE};padding-top:6px'>"
+                f"{len(visible_generated)} post(s) ready — post immediately, add to the "
+                f"schedule, or mark as posted.</div>",
+                unsafe_allow_html=True,
+            )
+        with _hdr_r:
+            st.button(
+                "✅ Mark all as posted",
+                key="gen_markall",
+                use_container_width=True,
+                help="Mark every post shown here as published (e.g. after you've "
+                "posted them all natively).",
+            )
         gen_sorted = sorted(
             visible_generated, key=lambda p: p.get("created_at") or "", reverse=True
         )
@@ -2581,7 +2624,7 @@ with tab_generated:
         for i, p in enumerate(gen_sorted):
             with cols[i % 3]:
                 with st.container(border=True):
-                    _post_card(p, "Ready to post", "manual_ready")
+                    _post_card(p, _gen_time_str(p), "manual_ready")
                     pid = p.get("id", "")
                     _is_tg_post = (p.get("meta") or {}).get("delivery") == "telegram"
                     # Buttons only — clicks are handled by the pre-pass at the

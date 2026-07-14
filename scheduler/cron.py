@@ -2414,9 +2414,25 @@ def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str
 
     now = datetime.now(UTC)
     created = 0
+    tg_sent = 0
     for post in posts:
         try:
             if manual:
+                # News is time-sensitive: for an Instagram post in Telegram mode
+                # (the default), send it to Telegram right now and land it in the
+                # Generated tab as a Telegram card — ready to post natively and
+                # mark as posted — rather than a plain card that was never sent.
+                if post.platform == Platform.INSTAGRAM.value and not _is_instagram_api_mode():
+                    from core.telegram_notify import send_instagram_post
+
+                    notified = send_instagram_post(post, config)
+                    post.meta = {
+                        **post.meta,
+                        "delivery": "telegram",
+                        "telegram_notified": notified,
+                    }
+                    if notified:
+                        tg_sent += 1
                 post.mark(PostStatus.MANUAL_READY)
             else:
                 # Publish immediately — news is time-sensitive.
@@ -2437,6 +2453,8 @@ def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str
 
     if manual:
         result = f"daily AI news: {created} post(s) → Generated tab"
+        if tg_sent:
+            result += f" ({tg_sent} sent to Telegram)"
     else:
         result = f"daily AI news: {created} post(s) publishing now"
     logger.info("=== Daily AI news finished: %s ===", result)
