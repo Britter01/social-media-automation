@@ -1246,8 +1246,10 @@ def _render_pipeline_controls(scope: str) -> None:
                 "Wheel Style (Instagram)",
                 "Dark Panels (Instagram)",
                 "Light Magazine (Instagram)",
-                "Rich Slide — Dark (IG+FB)",
-                "Rich Slide — Light (IG+FB)",
+                "Rich Slide — Dark (Instagram)",
+                "Rich Slide — Dark (Facebook)",
+                "Rich Slide — Light (Instagram)",
+                "Rich Slide — Light (Facebook)",
             ],
             key=f"{scope}_infog_fmt",
             label_visibility="collapsed",
@@ -1260,8 +1262,10 @@ def _render_pipeline_controls(scope: str) -> None:
             "Wheel Style (Instagram)": "create_infographic_wheel",
             "Dark Panels (Instagram)": "create_infographic_dark",
             "Light Magazine (Instagram)": "create_infographic_light",
-            "Rich Slide — Dark (IG+FB)": "create_infographic_rich_dark",
-            "Rich Slide — Light (IG+FB)": "create_infographic_rich_light",
+            "Rich Slide — Dark (Instagram)": "create_infographic_rich_dark_ig",
+            "Rich Slide — Dark (Facebook)": "create_infographic_rich_dark_fb",
+            "Rich Slide — Light (Instagram)": "create_infographic_rich_light_ig",
+            "Rich Slide — Light (Facebook)": "create_infographic_rich_light_fb",
         }
         _INFOG_TOPIC_MAP: dict[str, str | None] = {
             "Auto (daily rotation)": None,
@@ -1327,7 +1331,7 @@ def _render_pipeline_controls(scope: str) -> None:
             help=(
                 "Research a trending AI/tech topic, compose 5 eye-catching stat cards using "
                 "Higgsfield visuals, and assemble them into a 15-second Reel. "
-                "The finished post is auto-scheduled. Takes ~2 minutes."
+                "The finished post appears in the Generated tab for review. Takes ~2 minutes."
             ),
             key=f"{scope}_infog_btn",
         ):
@@ -1336,7 +1340,7 @@ def _render_pipeline_controls(scope: str) -> None:
                 if _infog_topic_val:
                     _cmd = f"{_cmd}|{_infog_topic_val}"
                 _queue_command(_cmd, cooldown_key="create_infographic")
-                st.info("Infographic queued — the Reel appears in Scheduled within ~5 min.")
+                st.info("Infographic queued — appears in the Generated tab within ~5 min.")
             except RuntimeError:
                 pass
             except Exception:

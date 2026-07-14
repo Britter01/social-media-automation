@@ -2071,6 +2071,12 @@ def run_infographic_pipeline(
         "create_infographic_wheel": [Platform.INSTAGRAM.value],
         "create_infographic_dark": [Platform.INSTAGRAM.value],
         "create_infographic_light": [Platform.INSTAGRAM.value],
+        # Rich slides — now choosable per platform (Instagram OR Facebook).
+        "create_infographic_rich_dark_ig": [Platform.INSTAGRAM.value],
+        "create_infographic_rich_dark_fb": [Platform.FACEBOOK.value],
+        "create_infographic_rich_light_ig": [Platform.INSTAGRAM.value],
+        "create_infographic_rich_light_fb": [Platform.FACEBOOK.value],
+        # Legacy combined variants (kept for backward compatibility).
         "create_infographic_rich_dark": [Platform.INSTAGRAM.value, Platform.FACEBOOK.value],
         "create_infographic_rich_light": [Platform.INSTAGRAM.value, Platform.FACEBOOK.value],
     }
@@ -2080,6 +2086,10 @@ def run_infographic_pipeline(
         "create_infographic_wheel": "wheel",
         "create_infographic_dark": "dark",
         "create_infographic_light": "light",
+        "create_infographic_rich_dark_ig": "rich_dark",
+        "create_infographic_rich_dark_fb": "rich_dark",
+        "create_infographic_rich_light_ig": "rich_light",
+        "create_infographic_rich_light_fb": "rich_light",
         "create_infographic_rich_dark": "rich_dark",
         "create_infographic_rich_light": "rich_light",
     }
