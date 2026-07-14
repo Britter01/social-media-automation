@@ -1469,10 +1469,12 @@ def run_pending_commands() -> None:
             elif command == "reset_stuck":
                 n = _reset_stuck_publishing(threshold_minutes=0)
                 result_msg = f"reset {n} stuck post(s) from 'publishing' back to 'scheduled'"
-            elif command == "rebalance_schedule":
+            elif command == "rebalance_schedule" or command == "rebalance_schedule|all":
                 # Manual maintenance — re-spaces the existing queue. Runs even
                 # while paused (it only reschedules, never publishes/generates).
-                result_msg = run_rebalance_schedule()
+                # The '|all' variant also re-spaces dated news posts; the plain
+                # command leaves them on their scheduled slots.
+                result_msg = run_rebalance_schedule(include_news=command.endswith("|all"))
             elif command.startswith("finalise_post|"):
                 # Explicit per-post finish from the In Progress tab — always
                 # runs (like publish) so a paused automation never blocks the
@@ -2139,19 +2141,27 @@ def run_infographic_pipeline(
     return msg
 
 
-def run_rebalance_schedule() -> str:
+# Time-dated content that must keep its scheduled slot unless the user opts in.
+_TIME_DATED_PILLARS = {"AI News"}
+
+
+def run_rebalance_schedule(include_news: bool = False) -> str:
     """Re-space every scheduled post across its platform's daily slots.
 
     A one-time cleanup for a queue that clustered before spacing was enforced.
     Preserves each platform's existing order but re-lays the posts onto the
     optimal slots (2-3/day per platform) starting from now, so no day ends up
     with a pile of same-platform posts. Only touches ``scheduled`` posts.
+
+    Time-dated news posts (pillar 'AI News') are LEFT IN PLACE by default so a
+    rebalance never pushes a dated briefing to a later slot. Pass
+    *include_news* to re-space them too.
     """
     from supabase import create_client
 
     from agents.scheduler_agent import SchedulerAgent
 
-    logger.info("=== Rebalance schedule starting ===")
+    logger.info("=== Rebalance schedule starting (include_news=%s) ===", include_news)
     try:
         scheduler_agent = SchedulerAgent()
         sb = create_client(config.supabase_url, config.supabase_key)
@@ -2176,12 +2186,28 @@ def run_rebalance_schedule() -> str:
     if not rows:
         return "no scheduled posts to rebalance"
 
-    # Chain per platform from a clean start so each platform fills its own
-    # slots at 2-3/day, preserving the original relative order.
+    # Seed spacing from any posts we're NOT moving (e.g. skipped news) so the
+    # rebalanced posts still slot in around them rather than on top.
     last_slot: dict[str, datetime] = {}
+    if not include_news:
+        for row in rows:
+            if (row.get("pillar") or "") in _TIME_DATED_PILLARS:
+                raw = row.get("scheduled_time") or ""
+                try:
+                    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    plat = row.get("platform") or ""
+                    if plat and (plat not in last_slot or dt > last_slot[plat]):
+                        last_slot[plat] = dt
+                except Exception:
+                    pass
+
     per_platform: dict[str, int] = {}
     updated = 0
+    skipped_news = 0
     for row in rows:
+        if not include_news and (row.get("pillar") or "") in _TIME_DATED_PILLARS:
+            skipped_news += 1
+            continue
         try:
             post = Post.from_row(row)
             scheduler_agent.schedule(post, after=last_slot.get(post.platform))
@@ -2196,6 +2222,8 @@ def run_rebalance_schedule() -> str:
 
     breakdown = ", ".join(f"{p}: {n}" for p, n in sorted(per_platform.items()))
     result = f"rebalanced {updated} scheduled post(s) across per-platform slots ({breakdown})"
+    if skipped_news:
+        result += f"; left {skipped_news} dated news post(s) in place"
     logger.info("=== Rebalance schedule finished: %s ===", result)
     return result[:400]
 

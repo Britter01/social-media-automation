@@ -1732,6 +1732,15 @@ def _render_pipeline_controls(scope: str) -> None:
             elif _rst_msg:
                 st.caption(f"🔄 Failed: {_rst_msg}")
 
+        _rebal_news = st.checkbox(
+            "Also re-space dated news posts",
+            value=False,
+            key=f"{scope}_rebalance_news",
+            help=(
+                "Off by default: time-dated AI News posts keep their scheduled slot "
+                "so a rebalance never delays a briefing. Tick to re-space them too."
+            ),
+        )
         if st.button(
             "📆  Rebalance Schedule",
             use_container_width=True,
@@ -1740,18 +1749,20 @@ def _render_pipeline_controls(scope: str) -> None:
                 "(2-3 per platform per day), starting from now and keeping the "
                 "existing order. Use this to thin out days that piled up with many "
                 "same-platform posts. Only touches scheduled posts — nothing is "
-                "published or regenerated."
+                "published or regenerated. Dated news posts are left in place "
+                "unless you tick the box above."
             ),
             key=f"{scope}_rebalance",
         ):
+            _rebal_cmd = "rebalance_schedule|all" if _rebal_news else "rebalance_schedule"
             try:
-                _queue_command("rebalance_schedule", cooldown_key="rebalance_schedule")
+                _queue_command(_rebal_cmd, cooldown_key="rebalance_schedule")
                 st.info("Rebalance queued — the schedule re-spaces within ~1 min.")
             except RuntimeError:
                 pass
             except Exception:
                 st.error("Failed to queue rebalance.")
-        _rbl = load_last_command_status(db, "rebalance_schedule")
+        _rbl = load_last_command_status(db, "rebalance_schedule", prefix=True)
         if _rbl:
             _rbl_status = _rbl.get("status", "")
             _rbl_msg = _rbl.get("error") or ""
