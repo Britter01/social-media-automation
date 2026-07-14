@@ -27,6 +27,7 @@ scheduler/cron.py  (APScheduler worker on Railway)
 │               Sonnet 4.6 plans carousel/infographic copy                 │
 │               Pillow renders 5 stat-card slides (InfographicAgent) OR    │
 │               4 text-card slides (CarouselAgent) + scene cover           │
+│               (all rendered text is emoji-sanitised — no tofu squares)   │
 │               Slides uploaded to Supabase Storage                        │
 │               SchedulerAgent picks optimal slot ± 15 min jitter          │
 │               → `posts` row: status=scheduled                            │
@@ -35,9 +36,13 @@ scheduler/cron.py  (APScheduler worker on Railway)
 │                                                                ───────────┘
 ├─ 06:00 daily ──▶ run_content_pipeline  (fallback / extra posts)
 │
-├─ 11:00 daily ──▶ run_daily_ai_news
+├─ 11:00 daily ──▶ run_infographic_pipeline  (scheduled infographic reel)
+│
+├─ 12:00 daily ──▶ run_daily_ai_news
 │                  Auto-generates an AI & tech news carousel from the day's
-│                  top stories — no topic approval required
+│                  top stories — no topic approval required. Target platform
+│                  (Instagram / Facebook / both) follows the saved default
+│                  set from the dashboard News Platforms selector.
 │
 ├─ Monday 07:00 ─▶ run_weekly_strategy
 │                  Studies competitor accounts & viral patterns
@@ -56,17 +61,40 @@ scheduler/cron.py  (APScheduler worker on Railway)
 │                  LinkedIn   → ugcPost with image asset
 │                  YouTube    → upload via YouTube Data API
 │                  TikTok     → upload via TikTok Content Posting API
+│                  (Facebook / X / LinkedIn can each be switched to
+│                   Telegram delivery per-platform in the dashboard)
 │
-└─ every 2 hrs ──▶ run_analytics
-                   Fetches engagement at 24 h + 7 d after publish
-                   Stores reach / impressions / likes / comments
+├─ every 2 hrs ──▶ run_analytics
+│                  Fetches engagement at 24 h + 7 d after publish
+│                  Stores reach / impressions / likes / comments
+│
+├─ every 4 hrs ──▶ run_qc_retry           (regenerate failed thumbnails)
+├─ every 15 sec ─▶ run_pending_commands   (dashboard command queue — the
+│                  control plane behind every button; also reaps commands
+│                  stuck 'running' after a worker restart)
+├─ Sunday 03:00 ▶ run_cleanup_commands    (prune old command rows; keeps
+│                  pause/mode state rows)
+└─ Sunday 04:00 ▶ run_token_refresh       (refresh the Meta long-lived token)
 ```
 
 ### Instagram publishing strategy
 
 Instagram posts are routed to **Telegram** by default rather than published via the Graph API. Posts published through the API consistently receive suppressed reach (1–4 views) compared to native app uploads (60–70+ views). The bot sends the ready image and caption to your Telegram; you save the image and post it in the Instagram app for full organic reach.
 
-When you can't check Telegram, switch to **API mode** via the Instagram panel in the dashboard sidebar — the bot publishes directly and switches back automatically once you toggle it off.
+When you can't check Telegram, switch to **API mode** via the Platform Modes panel in the dashboard sidebar — the bot publishes directly and switches back automatically once you toggle it off.
+
+### Per-platform Telegram delivery
+
+Facebook, X/Twitter, and LinkedIn publish directly via their APIs by default, but each can be switched to **Telegram delivery** independently from the **Platform Modes** panel — the same manual-native-posting flow Instagram uses. Useful when you'd rather post that platform by hand for reach.
+
+### Per-platform pipeline control
+
+Every platform has **two independent switches** in the sidebar **Platform Publishing** panel:
+
+- **Content** — pauses topic research *and* content generation for that platform. No new topics are assigned to it, and its already-approved topics stop becoming posts (they are held, not rejected, so they resume automatically when you switch it back on).
+- **Publishing** — holds that platform's scheduled posts in the queue (a manual **Publish Now** on an individual post still works).
+
+Platforms with no API credentials on the worker show as **"not set up"** rather than offering pause/resume buttons, so the dashboard never implies a platform is posting when it can't. A master **Content Generation** switch (above the per-platform ones) pauses all research and generation across every platform at once.
 
 ### Human approval gate
 
@@ -117,8 +145,9 @@ core/
   database.py        Supabase CRUD for posts, topics, post_analytics tables.
   storage.py         Supabase Storage uploader (public URLs for media).
   cover_image.py     Perspective-warps a text card onto a lifestyle scene photo.
-  telegram_notify.py Sends Instagram posts to Telegram for native posting.
-  image_utils.py     Shared Pillow helpers (text wrapping, font loading).
+  telegram_notify.py Sends posts to Telegram for native posting (any platform).
+  image_utils.py     Shared Pillow helpers (text wrapping, font loading,
+                     emoji/smart-punctuation sanitising for rendered text).
 agents/
   research_agent.py    Trending-topic discovery + scoring (Claude web search).
   content_agent.py     Captions + hashtags (Claude, prompt caching).
@@ -243,15 +272,19 @@ streamlit run dashboard/app.py
 | Tab | What it shows |
 |-----|---------------|
 | **Topics** | Researched topics awaiting your approval |
-| **In Progress** | Posts being generated (draft → media_ready) |
-| **Scheduled** | Posts with a future publish time; edit captions here |
-| **Generated** | Posts in `manual_ready` — Instagram posts sent to Telegram, plus any held posts |
-| **Calendar** | Monthly view of scheduled posts |
+| **In Progress** | Posts whose copy is written but media isn't generated yet. **Generate & schedule** (per-post or all at once) finishes the media and moves them to Scheduled |
+| **Scheduled** | Posts with a future publish time; edit captions, **Publish Now** (that single post only), or dismiss |
+| **Generated** | Posts in `manual_ready` — posts delivered to Telegram, plus any held posts. Post Now / Schedule / Mark as Posted / Dismiss per card |
+| **Calendar** | Monthly view of scheduled posts (navigable) |
 | **Published** | All published posts with platform links |
 | **Analytics** | Engagement metrics (reach, impressions, likes) |
-| **Pipeline** | Process diagram + pipeline status bar |
+| **Pipeline** | Process diagram + **Storage archive & cleanup** (download published-post media to a ZIP and free Supabase Storage) |
 
-The sidebar contains all controls: pause/resume automation, content creation, pipeline runs, Instagram mode toggle, and maintenance tools. On mobile, the same controls appear in the main body.
+The sidebar contains all controls: pause/resume automation, master content-generation switch, per-platform Content + Publishing switches, the AI News platform selector, pipeline runs, Platform Modes (Instagram API mode + per-platform Telegram delivery), and maintenance tools (System Check, token refresh, reset stuck posts, hashtag trim). Pipeline controls run as a Streamlit *fragment*, so clicking a button updates just that panel instead of reloading the whole page. On mobile, the same controls appear in the main body.
+
+### How the dashboard talks to the worker
+
+The dashboard never runs pipeline work itself — it inserts rows into the `pipeline_commands` table, and the worker's command queue (polled every 15 s) executes them and writes back the result. A **worker health banner** appears at the top if commands sit unprocessed, which means the Railway worker is down or deploying. Because of the queue, buttons take a few seconds (media/publish actions a few minutes) to reflect — that's the round-trip, not a hang.
 
 ---
 
@@ -286,9 +319,14 @@ Set all environment variables in your platform's dashboard and run the `worker` 
 
 - **Go live carefully.** Keep `DRY_RUN=true` for the first deploy. Watch the logs. Then set it to `false`.
 - **Instagram reach.** Use Telegram delivery (default) for organic reach. Switch to API mode only when you can't check Telegram — then switch back.
-- **Automation pause.** Use the Pause Automation button in the dashboard sidebar to stop all scheduled jobs instantly. Resume when ready.
+- **Two levels of pause.** The **Pause Automation** button stops every scheduled job instantly. Below it, the master **Content Generation** switch pauses only research + generation, and each platform has its own **Content** and **Publishing** switches. Resume any of them when ready.
+- **Publish Now targets one post.** A per-post Publish Now publishes only that post (bypassing its own platform pause) — it never sweeps up other platforms' overdue posts. The bulk **Publish Due Posts** button honours platform pauses.
 - **Media URLs.** Instagram and TikTok need publicly reachable media. Supabase Storage handles this automatically.
-- **Failure isolation.** One failing post or platform never crashes the worker. Failures are logged and the post is marked `failed`.
-- **Publish-once.** The worker atomically claims each post before publishing (`scheduled → publishing`), and the publisher skips posts that already have a platform ID. Safe to run multiple worker instances.
+- **Storage housekeeping.** Supabase Storage fills up over time. The **Storage archive & cleanup** section (Pipeline tab) bundles media for published/dismissed posts into a ZIP for local backup, then deletes it from Supabase. It never touches cached backgrounds/templates, config flags, or anything under 7 days old.
+- **Emoji-free rendered text.** All text drawn into images is sanitised (emoji stripped, smart punctuation mapped to ASCII) so brand fonts never render a "tofu" square. Captions keep the same no-emoji rule.
+- **Failure isolation.** One failing post or platform never crashes the worker. Failures are logged and the post is marked `failed`. A failed Telegram delivery marks the post `failed` (not silently "sent") so you can retry it.
+- **Publish-once.** The worker atomically claims each post before publishing (`scheduled → publishing`), and the publisher skips posts that already have a platform ID. Commands are claimed atomically too (pending → running), so overlapping workers during a deploy can't run one twice. Safe to run multiple worker instances.
 - **Tuning post times.** Optimal-slot tables live in `agents/scheduler_agent.py`. Replace defaults with your own engagement data over time.
 - **Token refresh.** LinkedIn and Meta tokens expire. Use the Refresh Meta Token button in the dashboard Maintenance panel, or re-authorise the LinkedIn app and update `LINKEDIN_ACCESS_TOKEN`.
+- **Supabase key.** Use the **service role** key for `SUPABASE_KEY` (not the anon key) so the worker and dashboard bypass Row Level Security and can read/write all rows and list Storage objects (the archive scan needs the latter).
+- **Google Drive is not used.** The pipeline uses Google only for **Imagen** (`GOOGLE_API_KEY`, thumbnails) and the **YouTube Data API** (publishing). There is no Google Drive integration anywhere in the app.

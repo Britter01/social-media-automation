@@ -3364,9 +3364,9 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
   </div>
   <div style="min-width:8px"></div>
   <div class="node trigger" style="max-width:160px">
-    <div class="tag">Daily 11:00</div>
+    <div class="tag">Daily 12:00</div>
     <div class="label">AI News Carousel</div>
-    <div class="sub">Auto-generates a carousel from the day's top AI &amp; tech stories.</div>
+    <div class="sub">Auto-generates a carousel from the day's top AI &amp; tech stories, for the platform(s) chosen in the News selector.</div>
   </div>
   <div style="min-width:8px"></div>
   <div class="node trigger" style="max-width:165px">
@@ -3434,14 +3434,14 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
 </div>
 
 <div class="row"><div class="arr">↓</div></div>
-<div class="row"><div class="mini">every 5 min</div></div>
+<div class="row"><div class="mini">every 5 min · honours per-platform pauses</div></div>
 <div class="row"><div class="arr">↓</div></div>
 
 <!-- Row 6: Publisher -->
 <div class="row">
   <div class="node publish" style="min-width:320px">
     <div class="label">Publisher Agent</div>
-    <div class="sub">Claims posts whose scheduled time has passed and routes them to the right delivery channel.</div>
+    <div class="sub">Claims posts whose scheduled time has passed and routes them to the right delivery channel. A per-post <b>Publish Now</b> pushes a single post immediately, bypassing only its own pause.</div>
   </div>
 </div>
 
@@ -3462,7 +3462,7 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
     <div class="label">Live on Platform</div>
     <div class="sub">Direct API publish by default. Status → <b style="color:#1D7A34">published</b>.
     <br><br>
-    <span style="color:#6E6E73;font-size:10px">Telegram mode available in Platform Modes panel (sidebar) to route to Telegram instead.</span></div>
+    <span style="color:#6E6E73;font-size:10px">Each can be switched to Telegram delivery independently in the Platform Modes panel (sidebar). Platforms with no credentials publish nothing and show as "not set up".</span></div>
   </div>
 </div>
 
@@ -3471,6 +3471,10 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
   <div style="font-size:11px;font-weight:600;color:#A1A1A6;letter-spacing:0.18em;text-transform:uppercase;margin-bottom:12px">
     Background jobs</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
+      <div class="label" style="font-size:13px">Command Queue <span class="dim">every 15 sec</span></div>
+      <div class="sub">Runs dashboard button commands (the control plane) and reaps commands stuck after a worker restart.</div>
+    </div>
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
       <div class="label" style="font-size:13px">QC Retry <span class="dim">every 4 hrs</span></div>
       <div class="sub">Re-generates thumbnails that failed the image quality check.</div>
@@ -3484,8 +3488,12 @@ body { background:#F5F5F7; color:#1D1D1F; padding:20px; font-size:13px; }
       <div class="sub">Pulls reach, impressions, likes &amp; comments at 24 h and 7 d after publish.</div>
     </div>
     <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
+      <div class="label" style="font-size:13px">Token Refresh <span class="dim">Sunday 04:00</span></div>
+      <div class="sub">Refreshes the Meta long-lived token before its ~60-day expiry.</div>
+    </div>
+    <div class="node" style="min-width:0;max-width:none;flex:1;text-align:left;padding:12px 16px">
       <div class="label" style="font-size:13px">Cleanup <span class="dim">Sunday 03:00</span></div>
-      <div class="sub">Prunes pipeline command rows older than 7 days.</div>
+      <div class="sub">Prunes pipeline command rows older than 7 days (keeps pause/mode state rows).</div>
     </div>
   </div>
 </div>
