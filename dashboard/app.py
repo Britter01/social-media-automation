@@ -1478,7 +1478,8 @@ def _render_pipeline_controls(scope: str) -> None:
                 "Publish Due Posts",
                 "publish",
                 None,
-                "Sends any scheduled post whose time has passed.",
+                "Sends any scheduled post whose time has passed. Paused platforms "
+                "are skipped — resume them first, or use a post's own Publish Now.",
             ),
         ]
         for _label, _cmd, _cooldown, _tip in _pipeline_cmds:
@@ -2447,7 +2448,7 @@ with tab_scheduled:
                                 {"scheduled_time": datetime.now(UTC).isoformat()}
                             ).eq("id", pid).execute()
                             try:
-                                _queue_command("publish", cooldown_key=f"pub_{pid}")
+                                _queue_command(f"publish|{pid}", cooldown_key=f"pub_{pid}")
                             except RuntimeError:
                                 pass
                             st.cache_data.clear()
@@ -2498,7 +2499,7 @@ with tab_generated:
                 {"status": "scheduled", "scheduled_time": datetime.now(UTC).isoformat()}
             ).eq("id", _gpid).execute()
             try:
-                _queue_command("publish", cooldown_key=f"pub_{_gpid}")
+                _queue_command(f"publish|{_gpid}", cooldown_key=f"pub_{_gpid}")
             except RuntimeError:
                 pass
             st.session_state["_gen_hidden"].add(_gpid)
@@ -2522,7 +2523,7 @@ with tab_generated:
                 {"status": "scheduled", "scheduled_time": datetime.now(UTC).isoformat()}
             ).eq("id", _gpid).execute()
             try:
-                _queue_command("publish", cooldown_key=f"pub_{_gpid}")
+                _queue_command(f"publish|{_gpid}", cooldown_key=f"pub_{_gpid}")
             except RuntimeError:
                 pass
             st.cache_data.clear()

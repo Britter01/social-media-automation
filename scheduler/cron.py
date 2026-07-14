@@ -686,11 +686,16 @@ def _reset_stuck_publishing(threshold_minutes: int = 15) -> int:
         return 0
 
 
-def run_publisher(ignore_platform_pause: bool = False) -> None:
-    """Publish every post whose scheduled time has arrived.
+def run_publisher(ignore_platform_pause: bool = False, only_post_id: str | None = None) -> None:
+    """Publish posts whose scheduled time has arrived.
 
-    *ignore_platform_pause* is True when triggered by an explicit manual
-    'Publish Now' from the dashboard — those should always go through.
+    *only_post_id* — a single explicit 'Publish Now' from the dashboard. ONLY
+    that post is published, bypassing its own platform pause; no other due post
+    is touched. This is the safe path for a per-post button: it can never sweep
+    up other platforms' overdue posts.
+
+    *ignore_platform_pause* — for the bulk paths only. Left False so a bulk
+    publish honours platform pauses; a paused platform's posts stay queued.
     """
     from agents.publisher_agent import PublisherAgent
 
@@ -702,7 +707,25 @@ def run_publisher(ignore_platform_pause: bool = False) -> None:
         return
 
     _reset_stuck_publishing()
-    due = db.due_for_publishing(now=datetime.now(UTC))
+
+    if only_post_id:
+        one = db.get(only_post_id)
+        if not one:
+            logger.warning("Publish Now: post %s not found", only_post_id)
+            return
+        if one.status not in (PostStatus.SCHEDULED.value, PostStatus.MANUAL_READY.value):
+            logger.info(
+                "Publish Now: post %s is '%s', not publishable — skipping",
+                only_post_id,
+                one.status,
+            )
+            return
+        # An explicit single-post action bypasses that post's platform pause,
+        # but touches nothing else.
+        due = [one]
+        ignore_platform_pause = True
+    else:
+        due = db.due_for_publishing(now=datetime.now(UTC))
     if not due:
         logger.debug("No posts due for publishing")
         return
@@ -1407,13 +1430,18 @@ def run_pending_commands() -> None:
                         result_msg = f"unknown telegram_mode action: {action}"
                 else:
                     result_msg = f"invalid telegram_mode command: {command}"
+            elif command.startswith("publish|"):
+                # Explicit single-post 'Publish Now' — publishes ONLY this post,
+                # bypassing its own platform pause, and never touches other
+                # platforms' overdue posts.
+                run_publisher(only_post_id=command.split("|", 1)[1])
             elif command == "publish":
-                # Manual publish always runs — pause only stops scheduled jobs,
-                # not explicit user actions from the dashboard.
-                run_publisher(ignore_platform_pause=True)
+                # Bulk publish of everything due. Honours platform pauses — a
+                # paused platform's posts stay queued (does NOT override pauses).
+                run_publisher()
             elif command == "all":
                 result_msg = run_image_refresh()
-                run_publisher(ignore_platform_pause=True)
+                run_publisher()
             elif command == "diagnostics":
                 # Diagnostics must work while paused — that's exactly when the
                 # user needs to see what's wrong.
