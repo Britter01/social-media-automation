@@ -45,18 +45,20 @@ _NEWS_BG_PROMPT = (
 
 
 class NewsStory(BaseModel):
-    headline: str = Field(description="News headline — max 10 words, factual, no hype.")
+    headline: str = Field(description="News headline — max 10 words, factual, no hype, no emojis.")
     summary: str = Field(
-        description="What happened — 1-2 factual sentences. Include key names and figures."
-    )  # noqa: E501
+        description=(
+            "What happened — 1-2 factual sentences. Include key names and figures. No emojis."
+        )
+    )
     insight: str = Field(
-        description="Why it matters to everyday tech users — 1 sentence, max 12 words."
-    )  # noqa: E501
+        description="Why it matters to everyday tech users — 1 sentence, max 12 words. No emojis."
+    )
 
 
 class NewsCarouselPlan(BaseModel):
     lead_headline: str = Field(
-        description="Cover slide headline — e.g. 'Today in AI'. Max 6 words, punchy."
+        description="Cover slide headline — e.g. 'Today in AI'. Max 6 words, punchy, no emojis."
     )
     caption: str = Field(
         description=(

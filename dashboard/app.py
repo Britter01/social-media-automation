@@ -844,6 +844,32 @@ def _get_platform_telegram_states(_db) -> dict[str, tuple[bool, str | None]]:
     return result
 
 
+def _get_news_platforms_default(_db) -> str:
+    """Saved AI-news platform default: 'instagram', 'facebook' or 'both'.
+
+    Derived from the most recent news_default| command; 'both' if never set.
+    """
+    try:
+        rows = (
+            _db.table("pipeline_commands")
+            .select("command")
+            .like("command", "news_default|%")
+            .not_.eq("status", "failed")
+            .order("requested_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            value = rows[0]["command"].split("|", 1)[1]
+            if value in ("instagram", "facebook", "both"):
+                return value
+    except Exception:
+        pass
+    return "both"
+
+
 _SELECTIVE_PLATFORMS = ["instagram", "facebook", "twitter", "linkedin", "youtube", "tiktok"]
 
 
@@ -858,6 +884,8 @@ def _get_selective_pause_states(_db) -> dict[str, tuple[bool, str | None]]:
         ["pause_content_gen", "resume_content_gen"]
         + [f"pause_platform|{p}" for p in _SELECTIVE_PLATFORMS]
         + [f"resume_platform|{p}" for p in _SELECTIVE_PLATFORMS]
+        + [f"pause_platform_content|{p}" for p in _SELECTIVE_PLATFORMS]
+        + [f"resume_platform_content|{p}" for p in _SELECTIVE_PLATFORMS]
     )
     try:
         rows = (
@@ -893,13 +921,17 @@ def _get_selective_pause_states(_db) -> dict[str, tuple[bool, str | None]]:
                 states["content_gen"] = (cmd == "pause_content_gen", since)
         elif "|" in cmd:
             _action, _plat = cmd.split("|", 1)
-            if _plat not in seen:
-                seen.add(_plat)
-                states[_plat] = (_action == "pause_platform", since)
+            # Content-creation pause states live under their own key so they
+            # never collide with the publishing pause for the same platform.
+            _key = f"content_{_plat}" if _action.endswith("_content") else _plat
+            if _key not in seen:
+                seen.add(_key)
+                states[_key] = (_action.startswith("pause"), since)
 
     # Fill defaults
     for _p in _SELECTIVE_PLATFORMS:
         states.setdefault(_p, (False, None))
+        states.setdefault(f"content_{_p}", (False, None))
     states.setdefault("content_gen", (False, None))
 
     return states
@@ -1063,8 +1095,10 @@ def _render_pipeline_controls(scope: str) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            "Pauses automatic scheduled posts. Manual Publish Now always works. "
-            "Greyed platforms have no API credentials on the worker and never post."
+            "Two switches per platform: **Content** stops new topics being researched "
+            "and approved topics becoming posts; **Publishing** stops scheduled posts "
+            "going out (manual Publish Now always works). Greyed platforms have no API "
+            "credentials on the worker and never post."
         )
 
         _worker_status = _get_worker_platform_status()
@@ -1081,9 +1115,10 @@ def _render_pipeline_controls(scope: str) -> None:
             "tiktok": "TikTok",
         }
         # Full-width rows: a narrow sidebar wraps side-by-side buttons mid-word,
-        # so each platform gets a full-width button (or badge) of its own.
+        # so every control gets a full-width button (or badge) of its own.
         for _plat, _plat_label in _PLATFORM_LABELS.items():
-            _plat_paused, _plat_since = _sel.get(_plat, (False, None))
+            _pub_paused, _ = _sel.get(_plat, (False, None))
+            _con_paused, _ = _sel.get(f"content_{_plat}", (False, None))
             # Only grey out when the worker has told us its credentials —
             # with no status file yet, fall back to showing the buttons.
             _not_configured = _configured_plats is not None and _plat not in _configured_plats
@@ -1097,28 +1132,91 @@ def _render_pipeline_controls(scope: str) -> None:
                     f"{_plat_label} — not set up</div>",
                     unsafe_allow_html=True,
                 )
-            elif _plat_paused:
+                continue
+
+            _state_bits = []
+            if _con_paused:
+                _state_bits.append("content off")
+            if _pub_paused:
+                _state_bits.append("publishing off")
+            _state_str = (
+                f" <span style='color:#7B4F00;font-weight:600'>({', '.join(_state_bits)})</span>"
+                if _state_bits
+                else ""
+            )
+            st.markdown(
+                f"<div style='font-size:13px;font-weight:600;color:#1D1D1F;"
+                f"margin:4px 0 2px'>{_plat_label}{_state_str}</div>",
+                unsafe_allow_html=True,
+            )
+
+            if _con_paused:
                 if st.button(
-                    f"▶ Resume {_plat_label}",
-                    key=f"{scope}_resume_plat_{_plat}",
+                    "▶ Resume content",
+                    key=f"{scope}_resume_content_{_plat}",
                     use_container_width=True,
                     type="primary",
+                    help=f"Restart topic research and post creation for {_plat_label}.",
                 ):
                     try:
                         _queue_command(
-                            f"resume_platform|{_plat}",
-                            cooldown_key=f"plat_{_plat}",
+                            f"resume_platform_content|{_plat}",
+                            cooldown_key=f"platc_{_plat}",
                         )
-                        st.success(f"{_plat_label} resumed.")
+                        st.success(f"{_plat_label} content creation resumed.")
                     except RuntimeError:
                         pass
                     except Exception:
                         st.error("Failed to queue command.")
             else:
                 if st.button(
-                    f"⏸ Pause {_plat_label}",
+                    "✏️ Pause content",
+                    key=f"{scope}_pause_content_{_plat}",
+                    use_container_width=True,
+                    help=(
+                        f"Stop new topics being researched for {_plat_label} and stop "
+                        "its approved topics becoming posts. Already-scheduled posts "
+                        "still publish unless you also pause publishing."
+                    ),
+                ):
+                    try:
+                        _queue_command(
+                            f"pause_platform_content|{_plat}",
+                            cooldown_key=f"platc_{_plat}",
+                        )
+                        st.warning(f"{_plat_label} content creation paused.")
+                    except RuntimeError:
+                        pass
+                    except Exception:
+                        st.error("Failed to queue command.")
+
+            if _pub_paused:
+                if st.button(
+                    "▶ Resume publishing",
+                    key=f"{scope}_resume_plat_{_plat}",
+                    use_container_width=True,
+                    type="primary",
+                    help=f"Scheduled {_plat_label} posts will go out normally again.",
+                ):
+                    try:
+                        _queue_command(
+                            f"resume_platform|{_plat}",
+                            cooldown_key=f"plat_{_plat}",
+                        )
+                        st.success(f"{_plat_label} publishing resumed.")
+                    except RuntimeError:
+                        pass
+                    except Exception:
+                        st.error("Failed to queue command.")
+            else:
+                if st.button(
+                    "⏸ Pause publishing",
                     key=f"{scope}_pause_plat_{_plat}",
                     use_container_width=True,
+                    help=(
+                        f"Hold {_plat_label}'s scheduled posts in the queue. "
+                        "Manual Publish Now still works."
+                    ),
                 ):
                     try:
                         _queue_command(
@@ -1270,23 +1368,50 @@ def _render_pipeline_controls(scope: str) -> None:
             "text-transform:uppercase;color:#888;margin-bottom:4px'>AI News Carousel</div>",
             unsafe_allow_html=True,
         )
+        _NEWS_PLATFORM_OPTIONS = {
+            "Instagram + Facebook": "both",
+            "Instagram only": "instagram",
+            "Facebook only": "facebook",
+        }
+        _news_saved = _get_news_platforms_default(db)
+        _news_labels = list(_NEWS_PLATFORM_OPTIONS)
+        _news_pick = st.selectbox(
+            "News platforms",
+            _news_labels,
+            index=list(_NEWS_PLATFORM_OPTIONS.values()).index(_news_saved),
+            key=f"{scope}_news_platforms",
+            help=(
+                "Which platform(s) get the news carousel. Applies to the button "
+                "below AND becomes the default for the daily noon auto-news."
+            ),
+        )
+        _news_choice = _NEWS_PLATFORM_OPTIONS[_news_pick]
         if st.button(
             "📰  Generate AI News Now",
             use_container_width=True,
             help=(
-                "Fetch today's top 3 AI news stories via web search and publish a "
-                "5-slide branded carousel to Instagram + Facebook. Auto-runs daily at noon."
+                "Fetch today's top 3 AI news stories via web search and create a "
+                "5-slide branded carousel for the platform(s) selected above. "
+                "Auto-runs daily at noon."
             ),
             key=f"{scope}_ai_news_btn",
         ):
             try:
-                _queue_command("create_ai_news", cooldown_key="create_ai_news")
-                st.info("AI News carousel queued — appears in Generated tab within ~3 min.")
+                _queue_command(f"create_ai_news|{_news_choice}", cooldown_key="create_ai_news")
+                if _news_choice != _news_saved:
+                    try:
+                        _queue_command(f"news_default|{_news_choice}", cooldown_key="news_default")
+                    except RuntimeError:
+                        pass
+                st.info(
+                    f"AI News carousel ({_news_pick}) queued — appears in "
+                    "Generated tab within ~3 min."
+                )
             except RuntimeError:
                 pass
             except Exception:
                 st.error("Failed to queue AI news carousel.")
-        _news_last = load_last_command_status(db, "create_ai_news")
+        _news_last = load_last_command_status(db, "create_ai_news", prefix=True)
         if _news_last:
             _ns = _news_last.get("status", "")
             _nm = _news_last.get("error") or ""
