@@ -1733,6 +1733,36 @@ def _render_pipeline_controls(scope: str) -> None:
                 st.caption(f"🔄 Failed: {_rst_msg}")
 
         if st.button(
+            "📆  Rebalance Schedule",
+            use_container_width=True,
+            help=(
+                "Re-spaces every scheduled post across its platform's daily slots "
+                "(2-3 per platform per day), starting from now and keeping the "
+                "existing order. Use this to thin out days that piled up with many "
+                "same-platform posts. Only touches scheduled posts — nothing is "
+                "published or regenerated."
+            ),
+            key=f"{scope}_rebalance",
+        ):
+            try:
+                _queue_command("rebalance_schedule", cooldown_key="rebalance_schedule")
+                st.info("Rebalance queued — the schedule re-spaces within ~1 min.")
+            except RuntimeError:
+                pass
+            except Exception:
+                st.error("Failed to queue rebalance.")
+        _rbl = load_last_command_status(db, "rebalance_schedule")
+        if _rbl:
+            _rbl_status = _rbl.get("status", "")
+            _rbl_msg = _rbl.get("error") or ""
+            if _rbl_status == "done" and _rbl_msg:
+                st.caption(f"📆 {_rbl_msg}")
+            elif _rbl_status in ("pending", "running"):
+                st.caption("📆 Rebalancing…")
+            elif _rbl_msg:
+                st.caption(f"📆 Failed: {_rbl_msg}")
+
+        if st.button(
             "🔑  Refresh Meta Token",
             use_container_width=True,
             help=(

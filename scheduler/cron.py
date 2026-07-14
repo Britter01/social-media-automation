@@ -1469,6 +1469,10 @@ def run_pending_commands() -> None:
             elif command == "reset_stuck":
                 n = _reset_stuck_publishing(threshold_minutes=0)
                 result_msg = f"reset {n} stuck post(s) from 'publishing' back to 'scheduled'"
+            elif command == "rebalance_schedule":
+                # Manual maintenance — re-spaces the existing queue. Runs even
+                # while paused (it only reschedules, never publishes/generates).
+                result_msg = run_rebalance_schedule()
             elif command.startswith("finalise_post|"):
                 # Explicit per-post finish from the In Progress tab — always
                 # runs (like publish) so a paused automation never blocks the
@@ -2133,6 +2137,67 @@ def run_infographic_pipeline(
     msg = f"infographic: created {created} post(s) → {dest}"
     logger.info("=== Infographic pipeline finished: %s ===", msg)
     return msg
+
+
+def run_rebalance_schedule() -> str:
+    """Re-space every scheduled post across its platform's daily slots.
+
+    A one-time cleanup for a queue that clustered before spacing was enforced.
+    Preserves each platform's existing order but re-lays the posts onto the
+    optimal slots (2-3/day per platform) starting from now, so no day ends up
+    with a pile of same-platform posts. Only touches ``scheduled`` posts.
+    """
+    from supabase import create_client
+
+    from agents.scheduler_agent import SchedulerAgent
+
+    logger.info("=== Rebalance schedule starting ===")
+    try:
+        scheduler_agent = SchedulerAgent()
+        sb = create_client(config.supabase_url, config.supabase_key)
+    except Exception as exc:
+        logger.exception("Rebalance: failed to initialise")
+        return f"rebalance failed to initialise: {type(exc).__name__}: {exc}"[:300]
+
+    try:
+        rows = (
+            sb.table("posts")
+            .select("*")
+            .eq("status", "scheduled")
+            .order("scheduled_time")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.exception("Rebalance: could not load scheduled posts")
+        return f"rebalance failed to load posts: {type(exc).__name__}: {exc}"[:300]
+
+    if not rows:
+        return "no scheduled posts to rebalance"
+
+    # Chain per platform from a clean start so each platform fills its own
+    # slots at 2-3/day, preserving the original relative order.
+    last_slot: dict[str, datetime] = {}
+    per_platform: dict[str, int] = {}
+    updated = 0
+    for row in rows:
+        try:
+            post = Post.from_row(row)
+            scheduler_agent.schedule(post, after=last_slot.get(post.platform))
+            last_slot[post.platform] = post.scheduled_time
+            per_platform[post.platform] = per_platform.get(post.platform, 0) + 1
+            sb.table("posts").update({"scheduled_time": post.scheduled_time.isoformat()}).eq(
+                "id", post.id
+            ).execute()
+            updated += 1
+        except Exception:
+            logger.exception("Rebalance: failed to reschedule post %s", row.get("id", "?"))
+
+    breakdown = ", ".join(f"{p}: {n}" for p, n in sorted(per_platform.items()))
+    result = f"rebalanced {updated} scheduled post(s) across per-platform slots ({breakdown})"
+    logger.info("=== Rebalance schedule finished: %s ===", result)
+    return result[:400]
 
 
 def run_finalise_post(post_id: str) -> str:
