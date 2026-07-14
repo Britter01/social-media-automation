@@ -568,6 +568,11 @@ def run_image_refresh() -> str | None:
             thumbnail_agent is not None,
         )
 
+        # Recovered 'failed' posts are re-scheduled AFTER the existing queue,
+        # chaining per platform, so they don't all pile onto the next slot from
+        # now (which clusters many same-platform posts on one day).
+        _refresh_last_slot: dict[str, datetime] = get_database().latest_scheduled_time_by_platform()
+
         # --- Carousels (scheduled + failed with no image) ---
         if carousel_agent:
             for status in ("scheduled", "failed"):
@@ -596,7 +601,10 @@ def run_image_refresh() -> str | None:
                             "thumbnail_url": slides[0]["image_url"] if slides else None,
                         }
                         if status == "failed" and slides:
-                            scheduler_agent.schedule(source)
+                            scheduler_agent.schedule(
+                                source, after=_refresh_last_slot.get(source.platform)
+                            )
+                            _refresh_last_slot[source.platform] = source.scheduled_time
                             update["status"] = "scheduled"
                             update["scheduled_time"] = source.scheduled_time.isoformat()
                             update["error"] = None
@@ -633,7 +641,10 @@ def run_image_refresh() -> str | None:
                         thumbnail_agent.generate(post_obj)
                         update = {"thumbnail_url": post_obj.thumbnail_url}
                         if status == "failed" and post_obj.thumbnail_url:
-                            scheduler_agent.schedule(post_obj)
+                            scheduler_agent.schedule(
+                                post_obj, after=_refresh_last_slot.get(post_obj.platform)
+                            )
+                            _refresh_last_slot[post_obj.platform] = post_obj.scheduled_time
                             update["status"] = "scheduled"
                             update["scheduled_time"] = post_obj.scheduled_time.isoformat()
                             update["error"] = None
@@ -814,6 +825,10 @@ def run_qc_retry() -> None:
         return
 
     logger.info("QC retry: %d post(s) to recheck", len(rows))
+    # Space recovered posts AFTER the existing queue, chaining per platform, so
+    # they slot into future openings instead of all landing on the next slot
+    # from now (which would cluster many same-platform posts on one day).
+    last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
     retried = 0
     for row in rows:
         post = Post.from_row(row)
@@ -849,7 +864,8 @@ def run_qc_retry() -> None:
                     sb.table("posts").update({"error": post.error}).eq("id", post.id).execute()
                     continue
 
-            scheduler_agent.schedule(post)
+            scheduler_agent.schedule(post, after=last_slot.get(post.platform))
+            last_slot[post.platform] = post.scheduled_time
             db.upsert(post)
             retried += 1
             logger.info("QC retry: post %s rescheduled", post.id[:8])
