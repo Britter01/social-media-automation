@@ -46,9 +46,81 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import urllib.request
 
 logger = logging.getLogger(__name__)
+
+# ── Render-text sanitiser ──────────────────────────────────────────────────────
+# The brand fonts (Figtree/Playfair TTFs) have no emoji glyphs — any emoji that
+# reaches a Pillow draw call renders as a hollow "tofu" square. Every string
+# destined for an image must pass through sanitize_render_text() first.
+# (Captions are handled separately by the publisher's no-emoji rule.)
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f9ff"
+    "\U00002702-\U000027b0"
+    "\U000024c2-\U0001f251"
+    "\U0001fa00-\U0001fa6f"
+    "\U0001fa70-\U0001faff"
+    "☀-⛿"
+    "✀-➿"
+    "⬀-⯿"
+    "︀-️"
+    "‍"
+    "⃣"
+    "]+",
+    re.UNICODE,
+)
+
+# Smart punctuation and common symbols that AI models produce but brand fonts
+# often lack — map each to a safe ASCII equivalent.
+_SMART_MAP = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        "–": "-",
+        "—": " - ",
+        "…": "...",
+        "•": "-",
+        "‣": "-",
+        "×": "x",
+        "÷": "/",
+        "±": "+/-",
+        "→": "->",
+        "←": "<-",
+        "↑": "^",
+        "↓": "v",
+        "≈": "~",
+        "≤": "<=",
+        "≥": ">=",
+        "©": "(c)",
+        "®": "(R)",
+        "™": "(TM)",
+    }
+)
+
+# Catch-all: drop anything outside printable ASCII + Western Latin Extended
+# (U+0000–U+024F) that slipped past the emoji and smart-map filters.
+_NON_LATIN_RE = re.compile(r"[^\x00-ɏ]+")
+
+
+def sanitize_render_text(text: str) -> str:
+    """Make *text* safe for Pillow rendering with the brand fonts.
+
+    Strips emoji, maps smart punctuation to ASCII, drops non-Latin glyphs,
+    and collapses any double spaces left behind.
+    """
+    if not text:
+        return text
+    text = _EMOJI_RE.sub("", str(text))
+    text = text.translate(_SMART_MAP)
+    text = _NON_LATIN_RE.sub("", text)
+    return re.sub(r" {2,}", " ", text).strip()
+
 
 _ASSETS_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets"))
 
@@ -249,6 +321,7 @@ def _fit_lines(
     last visible line gets an ellipsis rather than being silently cut by the
     image border.
     """
+    text = sanitize_render_text(text)
     size = max(min_size, base_size)
     font = _load_font(path, size)
     lines = _wrap_text(draw, text, font, max_width)
@@ -482,6 +555,9 @@ def make_cover_card(photo_bytes: bytes, headline: str, subtext: str = "") -> byt
         logger.warning("Pillow not installed; returning photo unchanged")
         return photo_bytes
 
+    headline = sanitize_render_text(headline)
+    subtext = sanitize_render_text(subtext)
+
     img = Image.open(io.BytesIO(photo_bytes)).convert("RGBA")
     w, h = img.size
 
@@ -587,6 +663,9 @@ def make_dark_text_card(
     except ImportError:
         logger.warning("Pillow not installed; cannot create text card")
         return b""
+
+    headline = sanitize_render_text(headline)
+    body = sanitize_render_text(body)
 
     # ── Palette selection ────────────────────────────────────────────────────
     if theme == "light":
@@ -750,6 +829,9 @@ def make_photo_text_card(
     except ImportError:
         logger.warning("Pillow not installed; returning photo unchanged")
         return photo_bytes
+
+    headline = sanitize_render_text(headline)
+    body = sanitize_render_text(body)
 
     img = Image.open(io.BytesIO(photo_bytes)).convert("RGBA")
     w, h = img.size

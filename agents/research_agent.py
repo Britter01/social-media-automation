@@ -178,6 +178,7 @@ class ResearchAgent:
         cfg: Config = config,
         content_agent=None,
         db=None,
+        blocked_platforms: set[str] | None = None,
     ) -> None:
         """Build the agent.
 
@@ -185,18 +186,28 @@ class ResearchAgent:
         end-to-end (discover → persist → generate content) but stay easy
         to unit test. Both are optional: with neither, ``discover`` still
         works and returns scored topics in memory.
+
+        ``blocked_platforms`` are platforms whose content creation the user
+        has paused from the dashboard (Storage flags) — treated exactly like
+        DISABLED_PLATFORMS for this run: no topics researched for them, no
+        content generated from their topics.
         """
         cfg.require("anthropic_api_key")
         self._cfg = cfg
         self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
         self._content_agent = content_agent
         self._db = db
+        self._blocked = set(blocked_platforms or ())
         self._system = _system_prompt(
             cfg.brand_name,
             cfg.brand_founder,
             cfg.brand_tagline,
-            enabled_platforms=cfg.enabled_platforms(),
+            enabled_platforms=[p for p in cfg.enabled_platforms() if p not in self._blocked],
         )
+
+    def _inactive_platforms(self) -> set[str]:
+        """Platforms that must not receive topics or content this run."""
+        return set(self._cfg.disabled_platforms) | self._blocked
 
     # --- Public API ------------------------------------------------------
 
@@ -226,13 +237,13 @@ class ResearchAgent:
         """
         threshold = self._cfg.min_topic_relevance
         cap = limit if limit is not None else self._cfg.topics_per_run
-        disabled = set(self._cfg.disabled_platforms)
+        disabled = self._inactive_platforms()
 
         eligible = []
         for topic in topics:
             if topic.platform in disabled:
-                # Platform paused via DISABLED_PLATFORMS — never surface it for
-                # approval, generate content, or post it.
+                # Platform paused (DISABLED_PLATFORMS or dashboard content
+                # pause) — never surface it for approval or generate from it.
                 topic.mark(TopicStatus.REJECTED)
             elif topic.relevance_score >= threshold:
                 eligible.append(topic)
@@ -282,11 +293,20 @@ class ResearchAgent:
             return posts
 
         configured = set(self._cfg.configured_platforms()) if self._cfg else set()
-        disabled = set(self._cfg.disabled_platforms) if self._cfg else set()
+        disabled = self._inactive_platforms() if self._cfg else set(self._blocked)
 
         for topic in topics:
             # Safety net: never generate content for a paused platform, even if
             # an old topic for it slipped through approval before it was paused.
+            # Content-paused topics stay approved (not rejected) so they resume
+            # automatically when the platform is switched back on.
+            if topic.platform in self._blocked:
+                logger.info(
+                    "Skipping topic %s — %r content creation is paused (kept for later)",
+                    topic.id,
+                    topic.platform,
+                )
+                continue
             if topic.platform in disabled:
                 logger.info("Skipping topic %s — platform %r is disabled", topic.id, topic.platform)
                 topic.mark(TopicStatus.REJECTED)
@@ -311,6 +331,7 @@ class ResearchAgent:
                 if (
                     post.platform in (Platform.INSTAGRAM.value, Platform.LINKEDIN.value)
                     and Platform.FACEBOOK.value in configured
+                    and Platform.FACEBOOK.value not in disabled
                 ):
                     fb_post = Post(
                         pillar=post.pillar,

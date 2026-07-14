@@ -78,7 +78,12 @@ def run_content_pipeline(manual: bool = False) -> str:
     carousel_agent = _safe_init(CarouselAgent, "carousel")
     reels_agent = _safe_init(ReelsAgent, "reels")
 
-    platforms = config.configured_platforms() or config.platforms
+    _content_blocked = _content_paused_platforms()
+    platforms = [
+        p for p in (config.configured_platforms() or config.platforms) if p not in _content_blocked
+    ]
+    if not platforms:
+        return "content pipeline skipped — content creation is paused for every platform"
     pairings = _round_robin_platforms(config.content_pillars, platforms)
 
     # Seed last_slot from any posts already in the queue so new posts are
@@ -179,7 +184,11 @@ def run_research_pipeline() -> str:
         db = get_database()
         content_agent = ContentAgent()
         scheduler_agent = SchedulerAgent()
-        research_agent = ResearchAgent(content_agent=content_agent, db=db)
+        research_agent = ResearchAgent(
+            content_agent=content_agent,
+            db=db,
+            blocked_platforms=_content_paused_platforms(),
+        )
     except Exception:
         logger.exception("Research pipeline could not initialise; skipping run")
         return "pipeline failed to initialise"
@@ -210,7 +219,11 @@ def run_approved_pipeline() -> None:
         db = get_database()
         content_agent = ContentAgent()
         scheduler_agent = SchedulerAgent()
-        research_agent = ResearchAgent(content_agent=content_agent, db=db)
+        research_agent = ResearchAgent(
+            content_agent=content_agent,
+            db=db,
+            blocked_platforms=_content_paused_platforms(),
+        )
     except Exception:
         logger.exception("Approved-topic pipeline could not initialise; skipping run")
         return
@@ -1368,12 +1381,20 @@ def run_pending_commands() -> None:
                 result_msg = run_pause_content_gen()
             elif command == "resume_content_gen":
                 result_msg = run_resume_content_gen()
+            elif command.startswith("pause_platform_content|"):
+                _plat = command.split("|", 1)[1]
+                result_msg = run_pause_platform_content(_plat)
+            elif command.startswith("resume_platform_content|"):
+                _plat = command.split("|", 1)[1]
+                result_msg = run_resume_platform_content(_plat)
             elif command.startswith("pause_platform|"):
                 _plat = command.split("|", 1)[1]
                 result_msg = run_pause_platform(_plat)
             elif command.startswith("resume_platform|"):
                 _plat = command.split("|", 1)[1]
                 result_msg = run_resume_platform(_plat)
+            elif command.startswith("news_default|"):
+                result_msg = run_set_news_platforms(command.split("|", 1)[1])
             elif command.startswith("telegram_mode|"):
                 parts = command.split("|")
                 if len(parts) == 3 and parts[1] in _TELEGRAM_MODE_PLATFORMS:
@@ -1423,8 +1444,11 @@ def run_pending_commands() -> None:
                 result_msg = run_infographic_pipeline(
                     _parts[0], topic=_parts[1] if len(_parts) > 1 else None
                 )
-            elif command == "create_ai_news":
-                result_msg = run_daily_ai_news(manual=True)
+            elif command.startswith("create_ai_news"):
+                _parts = command.split("|", 1)
+                result_msg = run_daily_ai_news(
+                    manual=True, platforms=_parts[1] if len(_parts) > 1 else None
+                )
             elif command == "regen_news_bg":
                 result_msg = run_regen_news_bg()
             elif command == "cleanup_hashtags":
@@ -1558,7 +1582,14 @@ _STATE_COMMANDS = [
     "instagram_api_mode",
     "instagram_telegram_mode",
 ]
-_STATE_COMMAND_PREFIXES = ["pause_platform|", "resume_platform|", "telegram_mode|"]
+_STATE_COMMAND_PREFIXES = [
+    "pause_platform|",
+    "resume_platform|",
+    "pause_platform_content|",
+    "resume_platform_content|",
+    "telegram_mode|",
+    "news_default|",
+]
 
 
 def run_cleanup_commands() -> None:
@@ -1600,6 +1631,41 @@ _PLATFORM_PAUSE_PREFIX = "config/platform_paused."
 _PLATFORM_TELEGRAM_PREFIX = "config/telegram_mode."
 _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
+_NEWS_PLATFORMS_PATH = "config/news_platforms"
+_NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
+
+
+def _get_news_platforms_default() -> str:
+    """Read the saved AI-news platform default: 'instagram', 'facebook' or 'both'.
+
+    Fail-open to 'both' (the historical behaviour) if the flag is absent or
+    Storage is unreachable.
+    """
+    try:
+        from core.storage import get_storage
+
+        data = get_storage().download(_NEWS_PLATFORMS_PATH)
+        if data is None:
+            return "both"
+        value = data.decode().strip().lower()
+        return value if value in _NEWS_PLATFORM_CHOICES else "both"
+    except Exception:
+        return "both"
+
+
+def run_set_news_platforms(value: str) -> str:
+    """Persist the AI-news platform default (used by the daily noon run)."""
+    from core.storage import get_storage
+
+    if value not in _NEWS_PLATFORM_CHOICES:
+        return f"invalid news platform choice: {value}"
+    try:
+        get_storage().upload(_NEWS_PLATFORMS_PATH, value.encode(), content_type="text/plain")
+    except Exception as exc:
+        logger.exception("Could not write news platforms flag")
+        return f"news default write failed: {type(exc).__name__}: {exc}"[:300]
+    label = "Instagram + Facebook" if value == "both" else value.capitalize()
+    return f"daily AI news will now generate for {label}"
 
 
 def write_platform_status() -> None:
@@ -1782,6 +1848,70 @@ def run_resume_platform(platform: str) -> str:
         logger.error(msg)
         raise RuntimeError(msg)
     return f"{platform} automatic publishing resumed — scheduled posts will go out normally"
+
+
+_PLATFORM_CONTENT_PREFIX = "config/content_paused."
+
+
+def _is_platform_content_paused(platform: str) -> bool:
+    """Return True if content creation (research + generation) is off for *platform*.
+
+    Fail-open: if Storage is unreachable, assume running.
+    """
+    try:
+        from core.storage import get_storage
+
+        return get_storage().download(f"{_PLATFORM_CONTENT_PREFIX}{platform}") is not None
+    except Exception:
+        return False
+
+
+def _content_paused_platforms() -> set[str]:
+    """Return the set of platforms whose content creation is currently paused."""
+    return {p for p in config.platforms if _is_platform_content_paused(p)}
+
+
+def run_pause_platform_content(platform: str) -> str:
+    """Stop topic research AND content generation for *platform*.
+
+    No new topics are researched for it, and its already-approved topics stop
+    becoming posts until resumed. Publishing of already-scheduled posts is
+    governed separately by the publishing pause.
+    """
+    from core.storage import get_storage
+
+    logger.warning("=== PLATFORM %s CONTENT CREATION PAUSED by dashboard command ===", platform)
+    try:
+        get_storage().upload(
+            f"{_PLATFORM_CONTENT_PREFIX}{platform}", b"paused", content_type="text/plain"
+        )
+    except Exception as exc:
+        logger.exception("Could not write content pause flag for %s", platform)
+        return f"content pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+    return (
+        f"{platform} content creation paused — no new topics or posts will be "
+        "created for it (already-scheduled posts still publish unless you also "
+        "pause publishing)"
+    )
+
+
+def run_resume_platform_content(platform: str) -> str:
+    """Resume topic research and content generation for *platform*."""
+    from core.storage import get_storage
+
+    logger.warning("=== PLATFORM %s CONTENT CREATION RESUMED by dashboard command ===", platform)
+    try:
+        ok = get_storage().delete(f"{_PLATFORM_CONTENT_PREFIX}{platform}")
+    except Exception as exc:
+        logger.exception("Could not delete content pause flag for %s", platform)
+        raise RuntimeError(f"resume failed — storage raised {type(exc).__name__}: {exc}") from exc
+    if not ok:
+        msg = (
+            f"resume failed — could not delete content pause flag for {platform}; check worker logs"
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
+    return f"{platform} content creation resumed — topics and posts flow again"
 
 
 _INSTAGRAM_API_FLAG_PATH = "config/instagram.api_mode"
@@ -2095,8 +2225,12 @@ def run_regen_news_bg() -> str:
     return msg
 
 
-def run_daily_ai_news(manual: bool = False) -> str:
-    """Fetch today's top AI news and create a carousel for IG + FB.
+def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str:
+    """Fetch today's top AI news and create a carousel for the chosen platforms.
+
+    *platforms* is "instagram", "facebook", or "both". When None (the noon
+    cron, or a dashboard command without a choice), the saved default from the
+    ``config/news_platforms`` Storage flag applies — "both" if never set.
 
     When *manual* is True (dashboard-triggered), posts land in ``manual_ready``
     status (Generated tab) for review before publishing. When False (noon cron),
@@ -2104,7 +2238,13 @@ def run_daily_ai_news(manual: bool = False) -> str:
     """
     from agents.news_agent import NewsAgent
 
-    logger.info("=== Daily AI news carousel starting (manual=%s) ===", manual)
+    if platforms not in _NEWS_PLATFORM_CHOICES:
+        platforms = _get_news_platforms_default()
+    plat_list = ["instagram", "facebook"] if platforms == "both" else [platforms]
+
+    logger.info(
+        "=== Daily AI news carousel starting (manual=%s, platforms=%s) ===", manual, plat_list
+    )
     try:
         agent = NewsAgent()
         db = get_database()
@@ -2113,7 +2253,7 @@ def run_daily_ai_news(manual: bool = False) -> str:
         return f"daily AI news failed to initialise: {type(exc).__name__}: {exc}"[:300]
 
     try:
-        posts = agent.create_news_carousel()
+        posts = agent.create_news_carousel(platforms=plat_list)
     except Exception as exc:
         logger.exception("Daily AI news: create_news_carousel failed")
         return f"daily AI news creation failed: {type(exc).__name__}: {exc}"[:300]
@@ -2169,7 +2309,11 @@ def run_weekly_strategy() -> None:
     try:
         db = get_database()
         content_agent = ContentAgent()
-        research_agent = ResearchAgent(content_agent=content_agent, db=db)
+        research_agent = ResearchAgent(
+            content_agent=content_agent,
+            db=db,
+            blocked_platforms=_content_paused_platforms(),
+        )
     except Exception:
         logger.exception("Weekly strategy pipeline could not initialise; skipping")
         return
