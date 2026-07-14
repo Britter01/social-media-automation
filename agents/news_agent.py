@@ -48,11 +48,20 @@ class NewsStory(BaseModel):
     headline: str = Field(description="News headline — max 10 words, factual, no hype, no emojis.")
     summary: str = Field(
         description=(
-            "What happened — 1-2 factual sentences. Include key names and figures. No emojis."
+            "Short version for the carousel SLIDE — 1-2 factual sentences. "
+            "Include key names and figures. No emojis."
         )
     )
     insight: str = Field(
         description="Why it matters to everyday tech users — 1 sentence, max 12 words. No emojis."
+    )
+    full_text: str = Field(
+        description=(
+            "The FULL write-up for the CAPTION (not the slide) — the complete story the "
+            "reader finishes below the images. 3-5 sentences: what happened, the key "
+            "specifics (companies, numbers, dates, names), and why it matters in plain "
+            "language. Self-contained and readable on its own. No emojis, no hashtags."
+        )
     )
 
 
@@ -62,8 +71,15 @@ class NewsCarouselPlan(BaseModel):
     )
     caption: str = Field(
         description=(
-            "Instagram/Facebook caption — 2-3 warm sentences summarising today's AI highlights. "
-            "End with a light engagement question. No hashtags here."
+            "A warm 1-2 sentence INTRO that opens the caption — sets up today's AI "
+            "briefing. The full stories are appended after it automatically, so do NOT "
+            "summarise the stories here. No hashtags, no emojis."
+        )
+    )
+    closing_question: str = Field(
+        description=(
+            "One light engagement question to end the caption — invites a reply. "
+            "No hashtags, no emojis."
         )
     )
     hashtags: list[str] = Field(
@@ -268,7 +284,7 @@ class NewsAgent:
         }
         response = self._client.messages.create(
             model=self._cfg.model_creative,
-            max_tokens=2000,
+            max_tokens=3000,
             system=(
                 f"You are the content editor for {self._cfg.brand_name} — "
                 f'"{self._cfg.brand_tagline}". '
@@ -278,7 +294,15 @@ class NewsAgent:
                 "Be specific — include company names, numbers, and dates. "
                 "Each story insight must explain WHY it matters to everyday tech users "
                 "in plain language. No jargon. No hype. Make it feel like a trusted friend "
-                "sharing the day's news over coffee."
+                "sharing the day's news over coffee.\n\n"
+                "IMPORTANT — two versions of each story:\n"
+                "- 'summary' is the SHORT version shown on the carousel image (1-2 "
+                "sentences, tight).\n"
+                "- 'full_text' is the FULL write-up shown in the caption — 3-5 sentences "
+                "so the reader can finish the story the slide only teased. Do not just "
+                "repeat the summary; give the fuller picture with the specifics and the "
+                "so-what. The caption intro should NOT summarise the stories (they are "
+                "appended in full automatically); keep it to a warm 1-2 sentence opener."
             ),
             tools=[plan_tool],
             tool_choice={"type": "tool", "name": "create_news_carousel_plan"},
@@ -397,4 +421,41 @@ class NewsAgent:
 
     @staticmethod
     def _build_caption(plan: NewsCarouselPlan) -> str:
-        return plan.caption
+        """Compose the full caption: intro + each story written up in full + question.
+
+        The carousel slides only have room for a headline and a line or two, so
+        the caption carries the complete write-up of every story — the reader
+        finishes each story here rather than being left with the teaser.
+        """
+        parts: list[str] = []
+        intro = (plan.caption or "").strip()
+        if intro:
+            parts.append(intro)
+
+        for i, story in enumerate(plan.stories[:3], 1):
+            headline = (story.headline or "").strip()
+            body = (getattr(story, "full_text", "") or story.summary or "").strip()
+            block = f"{i}. {headline}".rstrip()
+            if body:
+                block += f"\n{body}"
+            parts.append(block)
+
+        closing = (getattr(plan, "closing_question", "") or "").strip()
+        if closing:
+            parts.append(closing)
+
+        caption = "\n\n".join(parts).strip()
+
+        # Instagram caps captions at 2200 chars (and ~5 hashtags are appended
+        # later). Keep a safety margin so a verbose run can never hard-fail a
+        # publish; trim at a sentence/word boundary rather than mid-word.
+        _MAX = 2000
+        if len(caption) > _MAX:
+            cut = caption[:_MAX]
+            for sep in (". ", "\n", " "):
+                idx = cut.rfind(sep)
+                if idx > _MAX * 0.6:
+                    cut = cut[: idx + (1 if sep == ". " else 0)]
+                    break
+            caption = cut.rstrip() + " …"
+        return caption
