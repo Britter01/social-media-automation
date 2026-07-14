@@ -2276,18 +2276,76 @@ with tab_progress:
     if not in_progress:
         st.info("Nothing being processed right now.")
     else:
+        st.caption(
+            "These posts have their copy written but no media yet. "
+            "**Generate & schedule** finishes the image/carousel and moves the post "
+            "to Scheduled, where you can then Publish Now. The media generates on the "
+            "worker, so a post takes a few minutes to move across."
+        )
+        # Bulk finish — queue every in-progress post at once.
+        if st.button(
+            f"✨ Generate & schedule all {len(in_progress)}",
+            type="primary",
+            key="finalise_all_prog",
+        ):
+            _queued = 0
+            for _p in in_progress:
+                _pid = _p.get("id")
+                if not _pid:
+                    continue
+                try:
+                    _queue_command(f"finalise_post|{_pid}", cooldown_key=f"finalise_{_pid}")
+                    _queued += 1
+                except RuntimeError:
+                    pass
+                except Exception:
+                    pass
+            st.cache_data.clear()
+            st.success(
+                f"{_queued} post(s) queued — media generates and they move to "
+                "Scheduled within a few minutes."
+            )
         cols = st.columns(3)
         for i, post in enumerate(in_progress):
             with cols[i % 3]:
                 with st.container(border=True):
                     _post_card(post)
                     pid = post.get("id", "")
-                    if pid and st.button(
-                        "Dismiss", key=f"dismiss_prog_{pid}", use_container_width=True
-                    ):
-                        db.table("posts").update({"status": "dismissed"}).eq("id", pid).execute()
-                        st.cache_data.clear()
-                        st.rerun()
+                    if pid:
+                        _fin_last = load_last_command_status(db, f"finalise_post|{pid}")
+                        _fin_active = bool(
+                            _fin_last and _fin_last.get("status") in ("pending", "running")
+                        )
+                        if st.button(
+                            "✨ Generate & schedule",
+                            key=f"finalise_prog_{pid}",
+                            use_container_width=True,
+                            type="primary",
+                            disabled=_fin_active,
+                            help=(
+                                "Generate this post's image/carousel and move it to "
+                                "Scheduled so you can Publish Now."
+                            ),
+                        ):
+                            try:
+                                _queue_command(
+                                    f"finalise_post|{pid}", cooldown_key=f"finalise_{pid}"
+                                )
+                                st.toast("✨ Generating media & scheduling…")
+                            except RuntimeError:
+                                pass
+                            except Exception:
+                                st.error("Failed to queue.")
+                        if _fin_active:
+                            st.caption("✨ Generating media & scheduling…")
+                        if st.button(
+                            "Dismiss", key=f"dismiss_prog_{pid}", use_container_width=True
+                        ):
+                            db.table("posts").update({"status": "dismissed"}).eq(
+                                "id", pid
+                            ).execute()
+                            st.cache_data.clear()
+                            st.rerun()
 
 # ── Scheduled ─────────────────────────────────────────────────────────────────
 

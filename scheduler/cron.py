@@ -1425,6 +1425,11 @@ def run_pending_commands() -> None:
             elif command == "reset_stuck":
                 n = _reset_stuck_publishing(threshold_minutes=0)
                 result_msg = f"reset {n} stuck post(s) from 'publishing' back to 'scheduled'"
+            elif command.startswith("finalise_post|"):
+                # Explicit per-post finish from the In Progress tab — always
+                # runs (like publish) so a paused automation never blocks the
+                # user manually pushing one stuck post forward.
+                result_msg = run_finalise_post(command.split("|", 1)[1])
             elif _is_automation_paused():
                 # All remaining commands are skipped while automation is paused.
                 result_msg = "automation paused — command skipped"
@@ -2084,6 +2089,43 @@ def run_infographic_pipeline(
     msg = f"infographic: created {created} post(s) → {dest}"
     logger.info("=== Infographic pipeline finished: %s ===", msg)
     return msg
+
+
+def run_finalise_post(post_id: str) -> str:
+    """Generate media for one content-ready post and schedule it.
+
+    The manual, single-post equivalent of the content pipeline's finishing
+    step: adds the image/carousel/video, runs QC, picks the next slot, and
+    moves the post to ``scheduled`` so the user can then Publish Now. Used by
+    the In Progress tab's "Generate & schedule" button for posts whose copy
+    was written but whose media never got generated.
+    """
+    from agents.scheduler_agent import SchedulerAgent
+
+    logger.info("Finalising single post %s", post_id)
+    try:
+        db = get_database()
+        scheduler_agent = SchedulerAgent()
+    except Exception as exc:
+        logger.exception("Finalise post: failed to initialise")
+        return f"finalise failed to initialise: {type(exc).__name__}: {exc}"[:300]
+
+    post = db.get(post_id)
+    if not post:
+        return f"post {post_id} not found"
+    if post.status not in (PostStatus.CONTENT_READY.value, PostStatus.MEDIA_READY.value):
+        return f"post is '{post.status}', not awaiting finalisation — nothing to do"
+
+    scheduled, summary = _finalise_posts([post], db, scheduler_agent, persist_insert=False)
+    if scheduled:
+        fresh = db.get(post_id)
+        ts = (
+            fresh.scheduled_time.strftime("%a %d %b %H:%M")
+            if fresh and fresh.scheduled_time
+            else "the next slot"
+        )
+        return f"post finalised and scheduled for {ts}"
+    return f"could not finalise post — {summary}"[:300]
 
 
 def run_schedule_post(post_id: str) -> str:
