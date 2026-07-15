@@ -337,12 +337,15 @@ class NewsAgent:
             """Strip emoji and non-BMP characters the brand font cannot render."""
             return re.sub(r"[^\x00-\xFF -⁯℀-⅏]", "", text).strip()
 
-        today = datetime.now(UTC).strftime("%d %b %Y")
+        # Date goes IN the cover headline so it renders large next to the title
+        # (e.g. "TODAY IN AI: JULY 15"), not as small subtitle text.
+        _date_headline = datetime.now(UTC).strftime("%B %-d").upper()  # "JULY 15"
+        _story_count = len(plan.stories[:3])
 
         all_slides = [
             {
-                "headline": _clean(plan.lead_headline).upper(),
-                "body": f"{today}  ·  3 stories shaping AI today",
+                "headline": _clean(f"{plan.lead_headline}: {_date_headline}").upper(),
+                "body": f"{_story_count} stories shaping AI today",
                 "role": "cover",
                 "slide_number": None,
             },
