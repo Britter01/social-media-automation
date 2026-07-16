@@ -1845,30 +1845,39 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # Worker version — makes a stale (un-redeployed) Railway worker obvious.
+
+def _render_worker_version_badge() -> None:
+    """Show whether the Railway worker is running the latest code.
+
+    Rendered in the MAIN body (not just the sidebar) so it's visible on
+    mobile, where the sidebar is collapsed.
+    """
     _ws = _get_worker_platform_status()
     _wv = (_ws or {}).get("version")
     if _wv == _EXPECTED_WORKER_VERSION:
         st.markdown(
-            f"<div style='font-size:11px;color:{SILVER};margin-top:2px'>"
+            f"<div style='font-size:12px;color:#1D7A34;margin-bottom:10px;font-weight:600'>"
             f"⚙️ Worker up to date (v{_wv})</div>",
             unsafe_allow_html=True,
         )
     elif _wv:
         st.markdown(
-            f"<div style='font-size:11px;color:#B25E09;margin-top:2px;font-weight:600'>"
-            f"⚠️ Worker is behind (running v{_wv}, expected v{_EXPECTED_WORKER_VERSION}). "
-            f"Redeploy the Railway worker from <code>main</code> to apply the latest fixes."
-            f"</div>",
+            f"<div style='background:#FFF3CD;border:1px solid #F0AD4E;border-radius:12px;"
+            f"padding:10px 14px;margin-bottom:10px;font-size:13px;color:#7B4F00'>"
+            f"⚠️ <b>Worker is behind</b> — running v{_wv}, latest is "
+            f"v{_EXPECTED_WORKER_VERSION}. The Railway worker hasn't picked up the newest "
+            f"code yet; wait for its deploy to finish (or redeploy from <code>main</code>). "
+            f"Recent fixes won't take effect until this shows up to date.</div>",
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            f"<div style='font-size:11px;color:{SILVER};margin-top:2px'>"
-            f"⚙️ Worker version unknown — run System Check, or it predates version "
-            f"reporting (redeploy to update).</div>",
+            f"<div style='font-size:12px;color:{SLATE};margin-bottom:10px'>"
+            f"⚙️ Worker version unknown — tap <b>System Check</b> to refresh it (or the "
+            f"worker predates version reporting; its next deploy will populate this).</div>",
             unsafe_allow_html=True,
         )
+
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
@@ -1917,13 +1926,15 @@ if not _wh["healthy"]:
     {f"Last worker activity: {_last}." if _last else "No record of the worker ever running."}
     <br><br>
     <b>Fix:</b> In Railway, open the <b>worker</b> service and check it's running
-    (not crashed) and deployed from branch
-    <code>claude/automations-not-running-DGjgD</code>. Redeploy if needed.
+    (not crashed) and deployed from branch <code>main</code>. Redeploy if needed.
   </div>
 </div>
 """,
         unsafe_allow_html=True,
     )
+
+# Worker code-version badge — visible on mobile (main body, not the sidebar).
+_render_worker_version_badge()
 
 # ── Automation pause banner (shown prominently in main content when paused) ──────
 
