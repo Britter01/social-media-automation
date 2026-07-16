@@ -970,6 +970,23 @@ def run_diagnostics() -> str:
     except Exception as exc:
         parts.append(f"storage FAILED ({str(exc)[:80]})")
 
+    # 3b. Pause/mode flags AS THE WORKER SEES THEM — the ground truth the
+    # publisher actually enforces (the dashboard shows intent from the command
+    # log, which can diverge from the Storage flags if a write ever failed).
+    try:
+        _plats = ["instagram", "facebook", "twitter", "linkedin", "youtube", "tiktok"]
+        _pub_off = [p for p in _plats if _is_platform_paused(p)]
+        _con_off = [p for p in _plats if _is_platform_content_paused(p)]
+        _flag_bits = [
+            f"automation={'PAUSED' if _is_automation_paused() else 'on'}",
+            f"content-gen={'PAUSED' if _is_content_gen_paused() else 'on'}",
+            f"publishing-paused={','.join(_pub_off) or 'none'}",
+            f"content-paused={','.join(_con_off) or 'none'}",
+        ]
+        parts.append("flags: " + " | ".join(_flag_bits))
+    except Exception as exc:
+        parts.append(f"flags check FAILED ({str(exc)[:80]})")
+
     # 3b. END-TO-END media test — the steps the pipeline actually runs but the
     # checks above never exercised: a real Imagen generation call, Pillow slide
     # rendering, and the brand overlay. This is what pinpoints why every post
@@ -1688,7 +1705,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.1"
+_WORKER_VERSION = "2026-07-16.2"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
@@ -1880,13 +1897,20 @@ def run_pause_platform(platform: str) -> str:
     from core.storage import get_storage
 
     logger.warning("=== PLATFORM %s PUBLISHING PAUSED by dashboard command ===", platform)
+    _path = f"{_PLATFORM_PAUSE_PREFIX}{platform}"
     try:
-        get_storage().upload(
-            f"{_PLATFORM_PAUSE_PREFIX}{platform}", b"paused", content_type="text/plain"
-        )
+        storage = get_storage()
+        storage.upload(_path, b"paused", content_type="text/plain")
+        # Verify the flag is actually readable — otherwise the dashboard would
+        # show "paused" while the publisher (which reads this flag) keeps going.
+        if storage.download(_path) is None:
+            raise RuntimeError("flag not readable immediately after write")
     except Exception as exc:
-        logger.exception("Could not write platform pause flag for %s", platform)
-        return f"platform pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+        logger.exception("Could not write/verify platform pause flag for %s", platform)
+        raise RuntimeError(
+            f"{platform} publishing pause FAILED to persist ({type(exc).__name__}: {exc}) — "
+            "the platform is NOT actually paused; check worker Storage permissions"
+        ) from exc
     return f"{platform} automatic publishing paused — manual Publish Now still works"
 
 
@@ -1941,13 +1965,18 @@ def run_pause_platform_content(platform: str) -> str:
     from core.storage import get_storage
 
     logger.warning("=== PLATFORM %s CONTENT CREATION PAUSED by dashboard command ===", platform)
+    _path = f"{_PLATFORM_CONTENT_PREFIX}{platform}"
     try:
-        get_storage().upload(
-            f"{_PLATFORM_CONTENT_PREFIX}{platform}", b"paused", content_type="text/plain"
-        )
+        storage = get_storage()
+        storage.upload(_path, b"paused", content_type="text/plain")
+        if storage.download(_path) is None:
+            raise RuntimeError("flag not readable immediately after write")
     except Exception as exc:
-        logger.exception("Could not write content pause flag for %s", platform)
-        return f"content pause flag write failed: {type(exc).__name__}: {exc}"[:300]
+        logger.exception("Could not write/verify content pause flag for %s", platform)
+        raise RuntimeError(
+            f"{platform} content pause FAILED to persist ({type(exc).__name__}: {exc}) — "
+            "the platform is NOT actually paused; check worker Storage permissions"
+        ) from exc
     return (
         f"{platform} content creation paused — no new topics or posts will be "
         "created for it (already-scheduled posts still publish unless you also "
