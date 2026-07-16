@@ -604,6 +604,11 @@ def _get_worker_platform_status() -> dict | None:
     return None
 
 
+# Bump in lock-step with scheduler/cron.py _WORKER_VERSION. If the worker
+# reports an older version, it hasn't been redeployed with the latest code.
+_EXPECTED_WORKER_VERSION = "2026-07-16.1"
+
+
 @st.cache_data(ttl=60)
 def load_topics():
     return (
@@ -1839,6 +1844,31 @@ with st.sidebar:
         f"{now_utc.strftime('%d %b %Y · %H:%M UTC')}</div>",
         unsafe_allow_html=True,
     )
+
+    # Worker version — makes a stale (un-redeployed) Railway worker obvious.
+    _ws = _get_worker_platform_status()
+    _wv = (_ws or {}).get("version")
+    if _wv == _EXPECTED_WORKER_VERSION:
+        st.markdown(
+            f"<div style='font-size:11px;color:{SILVER};margin-top:2px'>"
+            f"⚙️ Worker up to date (v{_wv})</div>",
+            unsafe_allow_html=True,
+        )
+    elif _wv:
+        st.markdown(
+            f"<div style='font-size:11px;color:#B25E09;margin-top:2px;font-weight:600'>"
+            f"⚠️ Worker is behind (running v{_wv}, expected v{_EXPECTED_WORKER_VERSION}). "
+            f"Redeploy the Railway worker from <code>main</code> to apply the latest fixes."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='font-size:11px;color:{SILVER};margin-top:2px'>"
+            f"⚙️ Worker version unknown — run System Check, or it predates version "
+            f"reporting (redeploy to update).</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── Header ────────────────────────────────────────────────────────────────────
 

@@ -1686,6 +1686,9 @@ _PLATFORM_PAUSE_PREFIX = "config/platform_paused."
 _PLATFORM_TELEGRAM_PREFIX = "config/telegram_mode."
 _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
+# Bump when shipping worker changes the dashboard should be able to confirm are
+# live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
+_WORKER_VERSION = "2026-07-16.1"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
@@ -1741,6 +1744,8 @@ def write_platform_status() -> None:
                 "configured": config.configured_platforms(),
                 "disabled": config.disabled_platforms,
                 "dry_run": config.dry_run,
+                "version": _WORKER_VERSION,
+                "reels_music": config.reels_music,
                 "updated_at": datetime.now(UTC).isoformat(),
             }
         ).encode()
@@ -2103,6 +2108,14 @@ def run_infographic_pipeline(
         logger.exception("Infographic pipeline: could not initialise")
         return f"infographic pipeline failed to initialise: {type(exc).__name__}: {exc}"[:300]
 
+    # Honour per-platform content pause: a platform switched off in the
+    # dashboard must never get a new infographic, even from the daily 11:00 job.
+    _content_blocked = _content_paused_platforms()
+    if platforms is not None:
+        platforms = [p for p in platforms if p not in _content_blocked]
+        if not platforms:
+            return "infographic skipped — content creation is paused for the target platform(s)"
+
     if topic:
         logger.info("Infographic pipeline: using requested topic=%r", topic)
     try:
@@ -2116,8 +2129,13 @@ def run_infographic_pipeline(
             )
         return f"infographic creation failed: {type(exc).__name__}: {exc}"[:300]
 
+    # Also drop any post whose platform is content-paused (covers the
+    # platforms=None case where the agent picked its own defaults).
+    if posts and _content_blocked:
+        posts = [p for p in posts if p.platform not in _content_blocked]
+
     if not posts:
-        return "infographic pipeline: no posts created"
+        return "infographic pipeline: no posts created (content may be paused for all targets)"
 
     last_slot: dict[str, datetime] = db.latest_scheduled_time_by_platform()
     created = 0
@@ -2431,6 +2449,13 @@ def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str
         platforms = _get_news_platforms_default()
     plat_list = ["instagram", "facebook"] if platforms == "both" else [platforms]
 
+    # Honour per-platform content pause — a platform switched off never gets
+    # a news carousel, whether from the noon job or a manual click.
+    _content_blocked = _content_paused_platforms()
+    plat_list = [p for p in plat_list if p not in _content_blocked]
+    if not plat_list:
+        return "AI news skipped — content creation is paused for the target platform(s)"
+
     logger.info(
         "=== Daily AI news carousel starting (manual=%s, platforms=%s) ===", manual, plat_list
     )
@@ -2452,25 +2477,12 @@ def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str
 
     now = datetime.now(UTC)
     created = 0
-    tg_sent = 0
     for post in posts:
         try:
             if manual:
-                # News is time-sensitive: for an Instagram post in Telegram mode
-                # (the default), send it to Telegram right now and land it in the
-                # Generated tab as a Telegram card — ready to post natively and
-                # mark as posted — rather than a plain card that was never sent.
-                if post.platform == Platform.INSTAGRAM.value and not _is_instagram_api_mode():
-                    from core.telegram_notify import send_instagram_post
-
-                    notified = send_instagram_post(post, config)
-                    post.meta = {
-                        **post.meta,
-                        "delivery": "telegram",
-                        "telegram_notified": notified,
-                    }
-                    if notified:
-                        tg_sent += 1
+                # Land in the Generated tab for review — the user decides when to
+                # post (Post Now sends an Instagram post to Telegram). Nothing is
+                # sent to Telegram automatically, so you keep full control.
                 post.mark(PostStatus.MANUAL_READY)
             else:
                 # Publish immediately — news is time-sensitive.
@@ -2491,8 +2503,6 @@ def run_daily_ai_news(manual: bool = False, platforms: str | None = None) -> str
 
     if manual:
         result = f"daily AI news: {created} post(s) → Generated tab"
-        if tg_sent:
-            result += f" ({tg_sent} sent to Telegram)"
     else:
         result = f"daily AI news: {created} post(s) publishing now"
     logger.info("=== Daily AI news finished: %s ===", result)

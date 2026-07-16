@@ -102,6 +102,8 @@ class ReelsAgent:
 
     def __init__(self) -> None:
         self._freesound_key = getattr(_config, "freesound_api_key", None)
+        # Music is opt-in (REELS_MUSIC=true); off by default — reels are silent.
+        self._music_enabled = getattr(_config, "reels_music", False)
 
     # ── Public entry point ─────────────────────────────────────────────────────
 
@@ -126,12 +128,15 @@ class ReelsAgent:
             video_path = self._build_slideshow(frame_paths)
             temp_files.append(video_path)
 
-            music_path = self._fetch_music(carousel_post.pillar)
-            if music_path:
-                temp_files.append(music_path)
-                mixed_path = self._mix_audio(video_path, music_path, carousel_post.id)
-                temp_files.append(mixed_path)
-                video_path = mixed_path
+            if self._music_enabled:
+                music_path = self._fetch_music(carousel_post.pillar)
+                if music_path:
+                    temp_files.append(music_path)
+                    mixed_path = self._mix_audio(video_path, music_path, carousel_post.id)
+                    temp_files.append(mixed_path)
+                    video_path = mixed_path
+            else:
+                logger.info("ReelsAgent: music disabled (REELS_MUSIC off) — silent reel")
 
             url = self._upload(video_path, carousel_post.id)
             logger.info("ReelsAgent: uploaded reel for post %s → %s", carousel_post.id, url)

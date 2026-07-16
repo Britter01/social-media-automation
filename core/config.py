@@ -131,6 +131,9 @@ class Config:
     # Used by ReelsAgent to search CC0 tracks matching the content pillar.
     # Reels are still produced (silently) if this key is absent.
     freesound_api_key: str | None = None
+    # Background music on Reels is OFF by default — the auto-picked CC0 tracks
+    # were inconsistent. Set REELS_MUSIC=true in Railway to re-enable.
+    reels_music: bool = False
 
     # --- Runtime behaviour ----------------------------------------------
     timezone: str = "Europe/London"
@@ -233,6 +236,7 @@ class Config:
             telegram_bot_token=_get("TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_get("TELEGRAM_CHAT_ID"),
             freesound_api_key=_get("FREESOUND_API_KEY"),
+            reels_music=_get_bool("REELS_MUSIC", False),
             timezone=_get("TIMEZONE", "Europe/London"),
             # Safe default — must explicitly set DRY_RUN=false to go live
             dry_run=_get_bool("DRY_RUN", True),
