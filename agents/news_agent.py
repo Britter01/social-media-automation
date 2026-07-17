@@ -248,12 +248,14 @@ class NewsAgent:
             {
                 "role": "user",
                 "content": (
-                    f"Today is {today}. Search for the 3 most important AI news stories "
-                    "published in the last 24 hours. Look for: major model releases, "
+                    f"Today is {today}. Search for the 5 most important AI news stories "
+                    "published in the last 24-48 hours. Look for: major model releases, "
                     "company announcements, research breakthroughs, regulatory news, "
                     "or significant funding rounds. "
-                    "For each story report: what happened, who was involved, and specific "
-                    "facts (numbers, dates, names, quotes). Prioritise novelty and impact."
+                    "Report AT LEAST 5 distinct stories so the editor can pick the best "
+                    "three — for EACH story give: what happened, who was involved, and "
+                    "specific facts (numbers, dates, names, quotes) in a full paragraph. "
+                    "Prioritise novelty and impact."
                 ),
             }
         ]
@@ -262,7 +264,7 @@ class NewsAgent:
         for _ in range(_MAX_WEB_TURNS):
             response = self._client.messages.create(
                 model=self._cfg.model_creative,
-                max_tokens=3000,
+                max_tokens=4000,
                 tools=[_WEB_SEARCH_TOOL],
                 messages=messages,
             )
@@ -301,7 +303,7 @@ class NewsAgent:
             # Generous budget: three full-text write-ups plus the summaries,
             # insights, intro, question and hashtags must all fit, or the last
             # story comes back empty.
-            max_tokens=4096,
+            max_tokens=6000,
             system=(
                 f"You are the content editor for {self._cfg.brand_name} — "
                 f'"{self._cfg.brand_tagline}". '
@@ -332,9 +334,12 @@ class NewsAgent:
                     "role": "user",
                     "content": (
                         f"Research:\n{raw_research}\n\n"
-                        "Select the 3 most important AI stories from today and create "
-                        "the news carousel plan. All 3 stories are required — never leave "
-                        "any field empty." + reminder
+                        "The research above contains several candidate stories. Pick the "
+                        "THREE strongest and write EACH one up completely — every one of "
+                        "the three needs a full headline, summary, insight and full_text. "
+                        "The third story matters just as much as the first: do not run out "
+                        "of steam and leave it thin or empty. Return exactly 3 complete "
+                        "stories." + reminder
                     ),
                 }
             ],
