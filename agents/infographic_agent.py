@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # ── Video constants (same as ReelsAgent) ──────────────────────────────────────
 REEL_W, REEL_H = 1080, 1920
 FPS = 24
-CARD_DURATION = 3.0  # seconds per infographic frame
+CARD_DURATION = 5.0  # seconds per infographic frame — long enough to read comfortably
 CROSSFADE_DUR = 0.4
 MUSIC_VOLUME = 0.08
 
