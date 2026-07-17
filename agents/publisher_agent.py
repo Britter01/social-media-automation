@@ -95,13 +95,19 @@ class PublisherAgent:
         """Remove emoji and non-Latin-1 characters that violate the no-emoji posting rule."""
         return re.sub(r"[^\x00-\xFF]", "", text).strip()
 
-    def publish(self, post: Post) -> Post:
+    def publish(self, post: Post, force_platform: bool = False) -> Post:
         """Publish ``post`` to its platform; set status and platform id.
 
         Idempotent: if the post is already published (or already carries a
         platform post id from a prior attempt), this is a no-op. Combined with
         ``Database.claim_for_publishing`` this guarantees a post is published
         at most once, even across overlapping runs or multiple workers.
+
+        *force_platform* is True only for an explicit dashboard "Publish Now" —
+        it bypasses the platform publishing pause. For every other path a paused
+        platform is left untouched (defense in depth: even if some caller skips
+        the scheduler's own pause check, nothing reaches a platform — or its
+        Telegram delivery — while it's paused).
         """
         if post.status == PostStatus.PUBLISHED.value or post.platform_post_id:
             logger.info(
@@ -109,6 +115,15 @@ class PublisherAgent:
                 post.id,
                 post.platform_post_id,
             )
+            return post
+
+        if not force_platform and self._is_platform_publishing_paused(post.platform):
+            logger.info(
+                "Publishing paused for %s — leaving post %s scheduled (not published/routed)",
+                post.platform,
+                post.id,
+            )
+            post.mark(PostStatus.SCHEDULED)
             return post
 
         # Enforce no-emoji rule and hard 5-hashtag cap before any platform logic
@@ -377,6 +392,21 @@ class PublisherAgent:
             from core.storage import get_storage
 
             return get_storage().download("config/instagram.api_mode") is not None
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_platform_publishing_paused(platform: str) -> bool:
+        """Return True if automatic publishing is paused for *platform*.
+
+        Reads the same Storage flag the scheduler writes. Fail-open (False) on a
+        Storage error so a transient blip doesn't wedge publishing — the
+        scheduler's own pre-check is the primary guard; this is defense in depth.
+        """
+        try:
+            from core.storage import get_storage
+
+            return get_storage().download(f"config/platform_paused.{platform}") is not None
         except Exception:
             return False
 

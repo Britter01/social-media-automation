@@ -20,6 +20,26 @@ def test_dry_run_does_not_call_apis(base_config):
     assert post.published_time is not None
 
 
+def test_paused_platform_is_not_published_or_routed(base_config, monkeypatch):
+    # Defense in depth: even if a caller reaches publish() for a paused
+    # platform, nothing is published/routed and the post stays scheduled —
+    # unless force_platform (explicit Publish Now) is set.
+    agent = PublisherAgent(base_config)
+    monkeypatch.setattr(agent, "_is_platform_publishing_paused", lambda platform: True)
+
+    post = Post(pillar="Review", platform="facebook", caption="Hi", thumbnail_url="http://x/1.png")
+    agent.publish(post)
+    assert post.status == PostStatus.SCHEDULED.value
+    assert post.platform_post_id is None
+
+    # force_platform bypasses the pause (Publish Now) — here it then hits the
+    # normal Facebook path and fails on missing media, proving it got past the
+    # pause guard rather than being short-circuited.
+    post2 = Post(pillar="Review", platform="facebook", caption="Hi")
+    with pytest.raises(PublishError):
+        agent.publish(post2, force_platform=True)
+
+
 def test_publish_is_idempotent_when_already_published(base_config, monkeypatch):
     def _boom(*args, **kwargs):
         raise AssertionError("must not call any API for an already-published post")
