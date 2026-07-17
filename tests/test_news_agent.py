@@ -57,6 +57,23 @@ def test_caption_is_trimmed_below_instagram_limit():
     assert caption.endswith("…")
 
 
+def test_empty_third_story_is_skipped_not_rendered_as_bare_number():
+    # The model occasionally returns a 3rd story with blank fields — it must
+    # not appear in the caption as "3." with nothing after it.
+    empty = NewsStory(headline="", summary="", insight="", full_text="")
+    plan = NewsCarouselPlan(
+        lead_headline="Today in AI",
+        caption="Intro.",
+        closing_question="Q?",
+        hashtags=["a", "b", "c", "d", "e"],
+        stories=[_story(1), _story(2), empty],
+    )
+    caption = NewsAgent._build_caption(plan)
+    assert "1. Headline 1" in caption
+    assert "2. Headline 2" in caption
+    assert "3." not in caption  # the empty story is dropped, not left as "3."
+
+
 def test_caption_falls_back_to_summary_when_full_text_missing():
     # full_text is required by the model, but guard against an empty value.
     story = NewsStory(headline="H", summary="Fallback summary text.", insight="i", full_text="")

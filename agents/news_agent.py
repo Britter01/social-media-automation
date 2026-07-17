@@ -275,8 +275,22 @@ class NewsAgent:
 
         return "\n".join(getattr(b, "text", "") for b in response.content if hasattr(b, "text"))
 
-    def _plan_news(self, raw_research: str) -> NewsCarouselPlan:
-        """Ask Claude to extract 3 stories and build the carousel plan."""
+    @staticmethod
+    def _valid_stories(stories) -> list:
+        """Return only stories with a real headline AND body (full_text/summary).
+
+        The model occasionally returns a third story with empty fields; those
+        must never reach the caption ("3." with nothing) or a blank slide.
+        """
+        out = []
+        for s in stories[:3]:
+            headline = (getattr(s, "headline", "") or "").strip()
+            body = (getattr(s, "full_text", "") or getattr(s, "summary", "") or "").strip()
+            if headline and body:
+                out.append(s)
+        return out
+
+    def _plan_news_attempt(self, raw_research: str, reminder: str = "") -> NewsCarouselPlan:
         plan_tool = {
             "name": "create_news_carousel_plan",
             "description": "Create a daily AI news carousel plan from web research.",
@@ -284,7 +298,10 @@ class NewsAgent:
         }
         response = self._client.messages.create(
             model=self._cfg.model_creative,
-            max_tokens=3000,
+            # Generous budget: three full-text write-ups plus the summaries,
+            # insights, intro, question and hashtags must all fit, or the last
+            # story comes back empty.
+            max_tokens=4096,
             system=(
                 f"You are the content editor for {self._cfg.brand_name} — "
                 f'"{self._cfg.brand_tagline}". '
@@ -301,8 +318,12 @@ class NewsAgent:
                 "- 'full_text' is the FULL write-up shown in the caption — 3-5 sentences "
                 "so the reader can finish the story the slide only teased. Do not just "
                 "repeat the summary; give the fuller picture with the specifics and the "
-                "so-what. The caption intro should NOT summarise the stories (they are "
-                "appended in full automatically); keep it to a warm 1-2 sentence opener."
+                "so-what.\n"
+                "ALL THREE stories must be fully populated — headline, summary, insight, "
+                "AND full_text. Never leave the third story blank; keep each full_text "
+                "tight (3-4 sentences) so all three comfortably fit. The caption intro "
+                "should NOT summarise the stories (they are appended in full "
+                "automatically); keep it to a warm 1-2 sentence opener."
             ),
             tools=[plan_tool],
             tool_choice={"type": "tool", "name": "create_news_carousel_plan"},
@@ -313,7 +334,7 @@ class NewsAgent:
                         f"Research:\n{raw_research}\n\n"
                         "Select the 3 most important AI stories from today and create "
                         "the news carousel plan. All 3 stories are required — never leave "
-                        "any field empty."
+                        "any field empty." + reminder
                     ),
                 }
             ],
@@ -325,6 +346,31 @@ class NewsAgent:
             ):
                 return NewsCarouselPlan(**block.input)
         raise RuntimeError("NewsAgent: news carousel plan tool call returned no result")
+
+    def _plan_news(self, raw_research: str) -> NewsCarouselPlan:
+        """Ask Claude to extract 3 stories and build the carousel plan.
+
+        Retries once if the model returns fewer than 3 complete stories, then
+        keeps whichever attempt was most complete (downstream renders only the
+        valid stories, so a partial result is still clean — never a blank slot).
+        """
+        plan = self._plan_news_attempt(raw_research)
+        if len(self._valid_stories(plan.stories)) >= 3:
+            return plan
+        logger.warning("NewsAgent: plan had <3 complete stories — retrying once")
+        plan2 = self._plan_news_attempt(
+            raw_research,
+            reminder=(
+                "\n\nYOUR LAST ATTEMPT LEFT A STORY INCOMPLETE. This time, make sure "
+                "ALL THREE stories have a non-empty headline, summary, insight and "
+                "full_text. Keep each full_text to 3 tight sentences so all three fit."
+            ),
+        )
+        return (
+            plan2
+            if len(self._valid_stories(plan2.stories)) >= len(self._valid_stories(plan.stories))
+            else plan
+        )
 
     def _render_slides(self, carousel_id: str, plan: NewsCarouselPlan) -> list[dict]:
         """Render 5 branded text cards and upload each to Supabase storage."""
@@ -340,17 +386,23 @@ class NewsAgent:
         # Date goes IN the cover headline so it renders large next to the title
         # (e.g. "TODAY IN AI: JULY 15"), not as small subtitle text.
         _date_headline = datetime.now(UTC).strftime("%B %-d").upper()  # "JULY 15"
-        _story_count = len(plan.stories[:3])
+        # Only render stories that are actually populated — an empty third story
+        # must not produce a blank slide or an inflated "3 stories" count.
+        _stories = self._valid_stories(plan.stories)
+        if not _stories:
+            raise RuntimeError("NewsAgent: plan produced no complete stories")
+        _story_count = len(_stories)
+        _story_word = "story" if _story_count == 1 else "stories"
 
         all_slides = [
             {
                 "headline": _clean(f"{plan.lead_headline}: {_date_headline}").upper(),
-                "body": f"{_story_count} stories shaping AI today",
+                "body": f"{_story_count} {_story_word} shaping AI today",
                 "role": "cover",
                 "slide_number": None,
             },
         ]
-        for i, story in enumerate(plan.stories[:3], 1):
+        for i, story in enumerate(_stories, 1):
             all_slides.append(
                 {
                     "headline": _clean(story.headline),
@@ -435,7 +487,9 @@ class NewsAgent:
         if intro:
             parts.append(intro)
 
-        for i, story in enumerate(plan.stories[:3], 1):
+        # Only include complete stories, re-numbered so there's never a "3."
+        # with nothing after it when the model leaves a story empty.
+        for i, story in enumerate(NewsAgent._valid_stories(plan.stories), 1):
             headline = (story.headline or "").strip()
             body = (getattr(story, "full_text", "") or story.summary or "").strip()
             block = f"{i}. {headline}".rstrip()
