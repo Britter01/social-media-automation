@@ -978,12 +978,17 @@ class InfographicAgent:
             video_path = self._build_slideshow(frame_paths)
             temp_files.append(video_path)
 
-            music_path = self._fetch_music()
-            if music_path:
-                temp_files.append(music_path)
-                mixed_path = self._mix_audio(video_path, music_path)
-                temp_files.append(mixed_path)
-                video_path = mixed_path
+            # Music is opt-in (REELS_MUSIC=true); off by default so infographic
+            # reels are silent — same rule as ReelsAgent.
+            if getattr(self._cfg, "reels_music", False):
+                music_path = self._fetch_music()
+                if music_path:
+                    temp_files.append(music_path)
+                    mixed_path = self._mix_audio(video_path, music_path)
+                    temp_files.append(mixed_path)
+                    video_path = mixed_path
+            else:
+                logger.info("InfographicAgent: music disabled (REELS_MUSIC off) — silent reel")
 
             return self._upload_video(video_path, topic)
 
