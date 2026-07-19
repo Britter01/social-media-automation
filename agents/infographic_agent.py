@@ -46,8 +46,12 @@ logger = logging.getLogger(__name__)
 # ── Video constants (same as ReelsAgent) ──────────────────────────────────────
 REEL_W, REEL_H = 1080, 1920
 FPS = 24
-CARD_DURATION = 5.0  # seconds per infographic frame — long enough to read comfortably
 CROSSFADE_DUR = 0.4
+# Slides are concatenated with a -CROSSFADE_DUR overlap, so the on-screen time
+# between one slide and the next is (CARD_DURATION - CROSSFADE_DUR). We want a
+# full 5 s between slides, so the clip length includes the crossfade.
+_SLIDE_ADVANCE = 5.0  # seconds each slide is on screen before the next begins
+CARD_DURATION = _SLIDE_ADVANCE + CROSSFADE_DUR  # 5.4 s → 5.0 s effective gap
 MUSIC_VOLUME = 0.08
 
 # ── Pillar → background prompts, per aspect ratio ─────────────────────────────

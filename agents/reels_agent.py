@@ -41,8 +41,12 @@ logger = logging.getLogger(__name__)
 
 REEL_W = 1080
 REEL_H = 1920
-SLIDE_DURATION = 5.0  # seconds each slide is visible
 CROSSFADE_DUR = 0.3  # seconds crossfade between slides
+# Clips overlap by -CROSSFADE_DUR on concatenation, so on-screen gap between
+# slides is (SLIDE_DURATION - CROSSFADE_DUR). Include the crossfade so viewers
+# get a full 5 s to read each slide.
+_SLIDE_ADVANCE = 5.0  # seconds each slide is on screen before the next begins
+SLIDE_DURATION = _SLIDE_ADVANCE + CROSSFADE_DUR  # 5.3 s → 5.0 s effective gap
 FPS = 24
 MUSIC_VOLUME = 0.25  # 25% — keeps text slides as the focal point
 
