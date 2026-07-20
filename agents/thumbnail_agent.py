@@ -63,14 +63,12 @@ _DEFAULT_SCENE = (
 )
 
 
-def _build_prompt(post: Post, brand_name: str) -> str:
-    """Build a purely visual Imagen prompt — no post title or topic text included.
+def _build_prompt(scene: str) -> str:
+    """Wrap a visual *scene* description in the brand style + strict no-text rules.
 
-    Feeding the post headline into the prompt caused Imagen to render it as
-    literal on-image text. This version drives the scene from the content pillar
-    only, giving Imagen only visual/spatial language to work with.
+    *scene* is a purely visual description (never the post headline text, which
+    Imagen would render as literal on-image characters).
     """
-    scene = _PILLAR_SCENE.get(post.pillar, _DEFAULT_SCENE)
     return (
         f"Editorial lifestyle photograph: {scene}. "
         "High detail, professional photography, warm and confident mood. "
@@ -109,6 +107,10 @@ class ThumbnailAgent:
             except Exception:
                 logger.warning("Could not init Imagen client", exc_info=True)
 
+        # Lazy Claude client (Haiku) — turns the post topic into a relevant
+        # visual scene so images aren't generic stock laptops.
+        self._anthropic = None
+
         # Prefer Supabase Storage (public URLs) when credentials are present;
         # fall back to writing locally otherwise.
         self._storage = None
@@ -123,9 +125,69 @@ class ThumbnailAgent:
                     exc_info=True,
                 )
 
+    # ── Topic-relevant scene ──────────────────────────────────────────────────
+
+    def _visual_scene(self, post: Post) -> str:
+        """Turn the post's topic into a concrete, relevant visual scene.
+
+        Uses Claude (Haiku tier) to translate the subject into physical imagery
+        — objects, setting, lighting, composition — so a post about, say, AI
+        coding assistants gets a developer's workspace, not a generic laptop.
+        The model is told to describe imagery only (no text/logos/UI), and the
+        result still passes through the strict no-text wrapper. Falls back to
+        the pillar scene if Claude is unavailable or errors.
+        """
+        fallback = _PILLAR_SCENE.get(post.pillar, _DEFAULT_SCENE)
+        topic = (post.title or post.topic or "").strip()
+        if not topic or not self._cfg.anthropic_api_key:
+            return fallback
+
+        try:
+            if self._anthropic is None:
+                import anthropic
+
+                self._anthropic = anthropic.Anthropic(api_key=self._cfg.anthropic_api_key)
+
+            context = topic
+            if post.caption:
+                context += f"\nPost gist: {post.caption[:200]}"
+
+            msg = self._anthropic.messages.create(
+                model=self._cfg.model_fast,
+                max_tokens=180,
+                system=(
+                    "You are an art director for a premium tech-lifestyle brand. Given a "
+                    "post's subject, describe ONE photographic scene that visually "
+                    "represents it — concrete real-world subjects, setting, lighting, "
+                    "composition and mood, in 1-2 sentences. Make it specific to the "
+                    "subject (e.g. a topic about fitness wearables -> a runner's wrist at "
+                    "dawn; about AI in medicine -> a clinician studying a glowing scan). "
+                    "Editorial, warm, premium. CRITICAL: describe only physical imagery — "
+                    "absolutely no text, words, letters, numbers, logos, signage, or "
+                    "screens showing legible content. Reply with the scene only."
+                ),
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"Subject: {context}\nPillar: {post.pillar}\n\nScene:",
+                    }
+                ],
+            )
+            scene = "".join(getattr(b, "text", "") for b in msg.content).strip()
+            if scene:
+                logger.info("Thumbnail scene for %s: %s", post.id, scene[:100])
+                return scene
+        except Exception:
+            logger.warning(
+                "Thumbnail: scene generation failed for %s; using pillar scene",
+                post.id,
+                exc_info=True,
+            )
+        return fallback
+
     # ── Higgsfield provider ───────────────────────────────────────────────────
 
-    def _generate_higgsfield(self, post: Post) -> bytes:
+    def _generate_higgsfield(self, post: Post, prompt: str) -> bytes:
         """Generate an image via Higgsfield Soul REST API.
 
         Flow: POST /v1/text2image/soul → get request_id → poll
@@ -137,7 +199,6 @@ class ThumbnailAgent:
         import requests as _req
 
         api_key = self._cfg.higgsfield_api_key
-        prompt = _build_prompt(post, self._cfg.brand_name)
         aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
 
         headers = {
@@ -188,13 +249,12 @@ class ThumbnailAgent:
 
     # ── Imagen provider ───────────────────────────────────────────────────────
 
-    def _generate_imagen(self, post: Post) -> bytes:
+    def _generate_imagen(self, post: Post, prompt: str) -> bytes:
         """Generate an image via Google Imagen."""
         if not self._imagen_client:
             raise RuntimeError("Imagen client not available (GOOGLE_API_KEY not set)")
         from google.genai import types
 
-        prompt = _build_prompt(post, self._cfg.brand_name)
         aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
         response = self._imagen_client.models.generate_images(
             model=self._cfg.imagen_model,
@@ -218,16 +278,19 @@ class ThumbnailAgent:
         back to Imagen. The overlay step is free (Pillow), so callers can
         retry it without spending another generation credit.
         """
+        # Build the prompt once (one Claude call for the scene) and reuse it for
+        # whichever image provider runs.
+        prompt = _build_prompt(self._visual_scene(post))
         if self._cfg.higgsfield_api_key:
             try:
-                return self._generate_higgsfield(post)
+                return self._generate_higgsfield(post, prompt)
             except Exception as exc:
                 logger.warning(
                     "Higgsfield generation failed for post %s (%s); falling back to Imagen",
                     post.id,
                     exc,
                 )
-        return self._generate_imagen(post)
+        return self._generate_imagen(post, prompt)
 
     def apply_overlay(self, raw_bytes: bytes) -> bytes:
         """Apply the brand overlay to raw image bytes and return the result.
