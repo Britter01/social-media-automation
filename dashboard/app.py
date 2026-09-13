@@ -18,6 +18,7 @@ import html
 import json
 import logging
 import os
+import sys
 import time
 import zipfile
 from collections import Counter, defaultdict
@@ -31,15 +32,36 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from supabase import create_client
 
-from core.supabase_http import install as _install_supabase_http
-
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Same HTTP/2 workaround the worker applies — see core/supabase_http.py. The
 # dashboard hits the same Supabase edge and hit the same dropped connections.
-_install_supabase_http()
+#
+# Two things make this fiddly, and getting either wrong takes the whole
+# dashboard down with a ModuleNotFoundError before a single widget renders:
+#
+# 1. sys.path. The worker runs `python -m scheduler.cron` from the repo root,
+#    so `core` imports cleanly. Streamlit runs dashboard/app.py directly and
+#    puts dashboard/ on sys.path, NOT the repo root — this is the only module
+#    outside dashboard/ that app.py needs, so nothing else caught it.
+# 2. It is an optimisation, not a feature. The dashboard must still start if
+#    it is unavailable, so failure is logged and swallowed rather than raised.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-logger = logging.getLogger(__name__)
+try:
+    from core.supabase_http import install as _install_supabase_http
+
+    _install_supabase_http()
+except Exception:
+    logger.warning(
+        "Supabase HTTP/1.1 workaround unavailable — the dashboard still works, "
+        "but may hit intermittent ConnectionTerminated errors",
+        exc_info=True,
+    )
 
 # ── Brand palette ───────────────────────────────────────────────────────────────
 
@@ -612,7 +634,7 @@ def _get_worker_platform_status() -> dict | None:
 
 # Bump in lock-step with scheduler/cron.py _WORKER_VERSION. If the worker
 # reports an older version, it hasn't been redeployed with the latest code.
-_EXPECTED_WORKER_VERSION = "2026-07-16.18"
+_EXPECTED_WORKER_VERSION = "2026-07-16.19"
 
 
 @st.cache_data(ttl=60)
