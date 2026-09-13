@@ -31,7 +31,13 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from supabase import create_client
 
+from core.supabase_http import install as _install_supabase_http
+
 load_dotenv()
+
+# Same HTTP/2 workaround the worker applies — see core/supabase_http.py. The
+# dashboard hits the same Supabase edge and hit the same dropped connections.
+_install_supabase_http()
 
 logger = logging.getLogger(__name__)
 
@@ -606,7 +612,7 @@ def _get_worker_platform_status() -> dict | None:
 
 # Bump in lock-step with scheduler/cron.py _WORKER_VERSION. If the worker
 # reports an older version, it hasn't been redeployed with the latest code.
-_EXPECTED_WORKER_VERSION = "2026-07-16.12"
+_EXPECTED_WORKER_VERSION = "2026-07-16.13"
 
 
 @st.cache_data(ttl=60)

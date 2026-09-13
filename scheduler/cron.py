@@ -31,6 +31,13 @@ from itertools import cycle
 from core.config import config, configure_logging
 from core.database import get_database
 from core.models import Platform, Post, PostStatus
+from core.supabase_http import install as _install_supabase_http
+
+# Every Supabase client in this process is built lazily (inside __init__ or a
+# function), so patching here — at import, before the scheduler starts — covers
+# all of them. Supabase's edge drops idle HTTP/2 connections, which surfaced as
+# random RemoteProtocolError failures on publishing, pause checks and commands.
+_install_supabase_http()
 
 logger = logging.getLogger("scheduler.cron")
 
@@ -1707,7 +1714,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.12"
+_WORKER_VERSION = "2026-07-16.13"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
