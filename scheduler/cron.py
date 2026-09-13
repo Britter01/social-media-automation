@@ -32,6 +32,7 @@ from core.config import config, configure_logging
 from core.database import get_database
 from core.models import Platform, Post, PostStatus
 from core.supabase_http import install as _install_supabase_http
+from core.supabase_http import is_installed as _supabase_http_installed
 
 # Every Supabase client in this process is built lazily (inside __init__ or a
 # function), so patching here — at import, before the scheduler starts — covers
@@ -1714,7 +1715,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.13"
+_WORKER_VERSION = "2026-07-16.14"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
@@ -2759,6 +2760,13 @@ def build_scheduler():
 
 def main() -> None:
     configure_logging(config.log_level)
+    if _supabase_http_installed():
+        logger.info("Supabase HTTP/1.1 workaround active (HTTP/2 disabled, connection retries on)")
+    else:
+        logger.warning(
+            "Supabase HTTP/1.1 workaround NOT active — expect intermittent "
+            "RemoteProtocolError: ConnectionTerminated failures"
+        )
     if config.dry_run:
         logger.warning(
             "DRY_RUN=true — no posts will be published. "

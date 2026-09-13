@@ -42,6 +42,17 @@ _CONNECT_RETRIES = 3
 _installed = False
 
 
+def is_installed() -> bool:
+    """Whether :func:`install` has successfully patched both clients.
+
+    ``install`` runs at import, before logging is configured, so its own log
+    line goes nowhere. Entry points use this to report the state once logging
+    is up — otherwise there is no way to tell from the logs whether the
+    workaround is actually active.
+    """
+    return _installed
+
+
 def install() -> bool:
     """Force Supabase's HTTP sessions onto HTTP/1.1 with connection retries.
 
