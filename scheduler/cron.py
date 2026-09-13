@@ -1194,6 +1194,33 @@ def run_diagnostics() -> str:
     except Exception as exc:
         parts.append(f"meta token check error: {str(exc)[:80]}")
 
+    # LinkedIn token. These last ~60 days and consumer-tier apps get no refresh
+    # token, so expiry is certain and silent — the first symptom is a failed
+    # post. A cheap read-only call turns that into something checkable on
+    # demand. /v2/userinfo is the same endpoint the publisher uses to derive
+    # the author URN, so a pass here means publishing can identify the author.
+    if config.linkedin_access_token:
+        try:
+            import httpx as _httpx
+
+            _lr = _httpx.get(
+                "https://api.linkedin.com/v2/userinfo",
+                headers={"Authorization": f"Bearer {config.linkedin_access_token}"},
+                timeout=15,
+            )
+            if _lr.status_code == 200:
+                # Deliberately not logging the member id — it identifies a person
+                # and adds nothing to the health signal.
+                parts.append("linkedin token OK (userinfo 200)")
+            elif _lr.status_code == 401:
+                parts.append("linkedin token EXPIRED/INVALID (401) — regenerate it in the app")
+            else:
+                parts.append(f"linkedin token FAILED (HTTP {_lr.status_code}: {_lr.text[:100]})")
+        except Exception as exc:
+            parts.append(f"linkedin token check error: {type(exc).__name__}: {str(exc)[:80]}")
+    else:
+        parts.append("linkedin token not set")
+
     # 4. Posts-table schema + what recent posts ACTUALLY saved. Selecting
     # post_type/slides also proves those columns exist — if they don't, every
     # carousel save silently fails and this read errors with the column name.
@@ -1737,7 +1764,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.17"
+_WORKER_VERSION = "2026-07-16.18"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
