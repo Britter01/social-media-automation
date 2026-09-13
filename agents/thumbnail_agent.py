@@ -33,6 +33,11 @@ _ASPECT_RATIO = {
     "tiktok": "9:16",
 }
 
+_HIGGSFIELD_BASE = "https://api.higgsfield.ai"
+# Terminal states from Higgsfield's status enum that are not success. Anything
+# else (queued, in_progress) means keep polling.
+_HIGGSFIELD_TERMINAL_FAILURES = ("failed", "nsfw", "canceled")
+
 # Pillar → purely visual scene description. No text, no topic echoing.
 _PILLAR_SCENE = {
     "AI Guide": (
@@ -187,12 +192,31 @@ class ThumbnailAgent:
 
     # ── Higgsfield provider ───────────────────────────────────────────────────
 
-    def _generate_higgsfield(self, post: Post, prompt: str) -> bytes:
-        """Generate an image via Higgsfield Soul REST API.
+    @staticmethod
+    def _http_detail(resp) -> str:
+        """Status line plus a slice of the response body.
 
-        Flow: POST /v1/text2image/soul → get request_id → poll
-        /requests/{id}/status until completed → download image bytes.
+        requests' raise_for_status() throws away the body, which is where every
+        API puts the reason. A bare '422 Unprocessable Entity' cost a long time
+        to diagnose; this makes the next failure self-explanatory.
+        """
+        try:
+            body = resp.text[:300]
+        except Exception:
+            body = "<unreadable body>"
+        return f"HTTP {resp.status_code} from {resp.url}: {body}"
+
+    def _generate_higgsfield(self, post: Post, prompt: str) -> bytes:
+        """Generate an image via the Higgsfield Soul API.
+
+        Flow: POST /higgsfield-ai/soul/standard → request_id + status_url →
+        poll until completed → download image bytes.
         Auth header: ``Authorization: Key KEY_ID:KEY_SECRET``.
+
+        Request/response shape follows Higgsfield's published OpenAPI spec
+        (docs.higgsfield.ai/docs/openapi.json): the body takes prompt,
+        aspect_ratio, num_images and resolution — and nothing else. An
+        unrecognised field is rejected outright with a 422.
         """
         import time
 
@@ -208,43 +232,54 @@ class ThumbnailAgent:
 
         # Submit
         resp = _req.post(
-            "https://platform.higgsfield.ai/v1/text2image/soul",
+            f"{_HIGGSFIELD_BASE}/higgsfield-ai/soul/standard",
             headers=headers,
             json={
                 "prompt": prompt,
                 "aspect_ratio": aspect_ratio,
-                "quality": "HD",
-                "batch_size": "SINGLE",
+                "num_images": 1,
             },
             timeout=30,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Higgsfield submit failed — {self._http_detail(resp)}")
         data = resp.json()
         request_id = data.get("request_id") or data.get("id")
         if not request_id:
             raise RuntimeError(f"Higgsfield did not return a request_id: {data}")
 
-        # Poll
-        poll_url = f"https://platform.higgsfield.ai/requests/{request_id}/status"
+        # Poll. Prefer the status_url the API hands back over one we build
+        # ourselves, so a future path change doesn't break polling.
+        poll_url = data.get("status_url") or f"{_HIGGSFIELD_BASE}/requests/{request_id}/status"
         deadline = time.time() + 300  # 5-minute timeout
         interval = 2
         while time.time() < deadline:
             time.sleep(interval)
             interval = min(interval * 1.5, 10)
             status_resp = _req.get(poll_url, headers=headers, timeout=15)
-            status_resp.raise_for_status()
+            if status_resp.status_code >= 400:
+                raise RuntimeError(f"Higgsfield poll failed — {self._http_detail(status_resp)}")
             status_data = status_resp.json()
             status = status_data.get("status", "")
             if status == "completed":
                 images = status_data.get("images") or []
                 if not images:
                     raise RuntimeError("Higgsfield completed but returned no images")
-                image_url = images[0].get("url") or images[0]
+                first = images[0]
+                image_url = first.get("url") if isinstance(first, dict) else first
+                if not image_url:
+                    raise RuntimeError(f"Higgsfield image entry has no url: {first}")
                 img_resp = _req.get(image_url, timeout=30)
-                img_resp.raise_for_status()
+                if img_resp.status_code >= 400:
+                    raise RuntimeError(
+                        f"Higgsfield download failed — {self._http_detail(img_resp)}"
+                    )
                 return img_resp.content
-            if status in ("failed", "nsfw"):
-                raise RuntimeError(f"Higgsfield generation {status}: {status_data}")
+            # Every terminal state must break the loop, or a failed job is only
+            # noticed after the full 5-minute timeout.
+            if status in _HIGGSFIELD_TERMINAL_FAILURES:
+                detail = status_data.get("error") or status_data
+                raise RuntimeError(f"Higgsfield generation {status}: {detail}")
         raise RuntimeError("Higgsfield timed out after 5 minutes")
 
     # ── Imagen provider ───────────────────────────────────────────────────────

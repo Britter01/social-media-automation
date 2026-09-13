@@ -8,7 +8,13 @@ anthropic>=0.49.0
 pydantic>=2.6.0
 
 # Thumbnails — Google Imagen 4 Fast
-google-genai>=1.0.0
+# Pinned below 2.0: google-genai 2.x made models.generate_images() Vertex-only,
+# raising "This method is only supported in Gemini Enterprise Agent Platform
+# mode, not in Gemini Developer API mode." on a plain GOOGLE_API_KEY. The 1.x
+# line still has the Developer API branch. This was unpinned, so a routine
+# rebuild silently picked up 2.x and every Imagen call started failing.
+# Removing this pin requires moving to Vertex AI credentials first.
+google-genai>=1.0.0,<2.0.0
 
 # Database — Supabase
 # Pinned below 2.16 — storage3>=2.16 pulls in pyiceberg which fails to build
