@@ -454,6 +454,14 @@ def _generate_media(post: Post, thumbnail_agent, video_agent, quality_agent=None
     """
     needs_video = post.platform in _VIDEO_PLATFORMS
 
+    if _are_platform_images_disabled(post.platform):
+        logger.info(
+            "Images are off for %s — post %s stays text-only (no Imagen call)",
+            post.platform,
+            post.id,
+        )
+        thumbnail_agent = None
+
     if thumbnail_agent is not None:
         try:
             raw_bytes = thumbnail_agent.generate_raw(post)
@@ -646,6 +654,13 @@ def run_image_refresh() -> str | None:
                             caption=p.get("caption", ""),
                             hashtags=list(p.get("hashtags") or []),
                         )
+                        if _are_platform_images_disabled(post_obj.platform):
+                            logger.info(
+                                "Images are off for %s — leaving post %s text-only",
+                                post_obj.platform,
+                                p["id"][:8],
+                            )
+                            continue
                         thumbnail_agent.generate(post_obj)
                         update = {"thumbnail_url": post_obj.thumbnail_url}
                         if status == "failed" and post_obj.thumbnail_url:
@@ -1447,6 +1462,12 @@ def run_pending_commands() -> None:
                 result_msg = run_pause_content_gen()
             elif command == "resume_content_gen":
                 result_msg = run_resume_content_gen()
+            elif command.startswith("platform_images|"):
+                _parts = command.split("|")
+                if len(_parts) == 3 and _parts[2] in ("on", "off"):
+                    result_msg = run_set_platform_images(_parts[1], _parts[2] == "on")
+                else:
+                    result_msg = f"invalid platform_images command: {command}"
             elif command.startswith("pause_platform_content|"):
                 _plat = command.split("|", 1)[1]
                 result_msg = run_pause_platform_content(_plat)
@@ -1671,6 +1692,7 @@ _STATE_COMMAND_PREFIXES = [
     "resume_platform_content|",
     "telegram_mode|",
     "news_default|",
+    "platform_images|",
 ]
 
 
@@ -1715,7 +1737,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.14"
+_WORKER_VERSION = "2026-07-16.15"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 
@@ -1942,6 +1964,78 @@ def run_resume_platform(platform: str) -> str:
         logger.error(msg)
         raise RuntimeError(msg)
     return f"{platform} automatic publishing resumed — scheduled posts will go out normally"
+
+
+_PLATFORM_IMAGES_PREFIX = "config/images_disabled."
+
+
+def _are_platform_images_disabled(platform: str) -> bool:
+    """Return True if *platform* should get text-only posts (no generated image).
+
+    Presence of the flag means images are OFF. Fail-open (images stay ON) if
+    Storage can't be read: an unwanted image is a cosmetic problem and the next
+    run corrects it, unlike a publishing pause where the cost of guessing wrong
+    is an irreversible post.
+
+    Carousel platforms ignore this entirely — see :func:`run_set_platform_images`.
+    """
+    from core.storage import flag_is_set
+
+    return flag_is_set(f"{_PLATFORM_IMAGES_PREFIX}{platform}", on_error=False)
+
+
+def run_set_platform_images(platform: str, enabled: bool) -> str:
+    """Turn generated images on or off for *platform*.
+
+    Off means the pipeline skips the Imagen call entirely and the post goes out
+    as text only — so this also saves the API spend, not just the picture.
+
+    Rejected for Instagram/Facebook: those are carousel-only, the slides *are*
+    the post, and a text-only carousel is not a thing. Better to refuse than to
+    accept a setting that silently does nothing.
+    """
+    if platform in _CAROUSEL_PLATFORMS:
+        raise RuntimeError(
+            f"{platform} is carousel-only — its slides are the post, so images "
+            "cannot be turned off. Pause the platform instead."
+        )
+
+    from core.storage import get_storage
+
+    path = f"{_PLATFORM_IMAGES_PREFIX}{platform}"
+    logger.warning(
+        "=== PLATFORM %s IMAGES %s by dashboard command ===",
+        platform,
+        "ENABLED" if enabled else "DISABLED",
+    )
+    try:
+        storage = get_storage()
+        if enabled:
+            if storage.download(path) is not None and not storage.delete(path):
+                raise RuntimeError("flag still present after delete")
+        else:
+            storage.upload(path, b"disabled", content_type="text/plain")
+            if storage.download(path) is None:
+                raise RuntimeError("flag not readable immediately after write")
+    except Exception as exc:
+        logger.exception("Could not persist images flag for %s", platform)
+        raise RuntimeError(
+            f"{platform} image setting FAILED to persist ({type(exc).__name__}: {exc}) — "
+            "nothing changed; check worker Storage permissions"
+        ) from exc
+
+    if enabled:
+        return f"{platform} images back on — new posts will include a generated image"
+    return f"{platform} images off — new posts will be text only, and no Imagen call is made"
+
+
+def _images_disabled_platforms() -> set[str]:
+    """Platforms currently set to text-only."""
+    return {
+        p
+        for p in config.platforms
+        if p not in _CAROUSEL_PLATFORMS and _are_platform_images_disabled(p)
+    }
 
 
 _PLATFORM_CONTENT_PREFIX = "config/content_paused."

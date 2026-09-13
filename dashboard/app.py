@@ -612,7 +612,7 @@ def _get_worker_platform_status() -> dict | None:
 
 # Bump in lock-step with scheduler/cron.py _WORKER_VERSION. If the worker
 # reports an older version, it hasn't been redeployed with the latest code.
-_EXPECTED_WORKER_VERSION = "2026-07-16.14"
+_EXPECTED_WORKER_VERSION = "2026-07-16.15"
 
 
 @st.cache_data(ttl=60)
@@ -852,6 +852,38 @@ def _get_platform_telegram_states(_db) -> dict[str, tuple[bool, str | None]]:
             result[platform] = (is_telegram, since)
         except Exception:
             result[platform] = (False, None)
+    return result
+
+
+_IMAGE_TOGGLE_PLATFORMS = ("twitter", "linkedin", "youtube", "tiktok")
+
+
+def _get_platform_image_states(_db) -> dict[str, bool]:
+    """Return {platform: images_enabled}.
+
+    Reads the most recent completed platform_images|{platform}|on/off command.
+    Default (no command) = images on, matching the pipeline's own default.
+
+    Instagram and Facebook are excluded: they are carousel-only, the slides
+    *are* the post, so there is nothing to turn off.
+    """
+    result: dict[str, bool] = {}
+    for platform in _IMAGE_TOGGLE_PLATFORMS:
+        try:
+            rows = (
+                _db.table("pipeline_commands")
+                .select("command,status,requested_at")
+                .like("command", f"platform_images|{platform}|%")
+                .not_.eq("status", "failed")
+                .order("requested_at", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            result[platform] = rows[0]["command"].endswith("|on") if rows else True
+        except Exception:
+            result[platform] = True
     return result
 
 
@@ -1106,9 +1138,10 @@ def _render_pipeline_controls(scope: str) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            "Two switches per platform: **Content** stops new topics being researched "
+            "Switches per platform: **Content** stops new topics being researched "
             "and approved topics becoming posts; **Publishing** stops scheduled posts "
-            "going out (manual Publish Now always works). Greyed platforms have no API "
+            "going out (manual Publish Now always works); **Text-only** keeps the "
+            "platform running but skips image generation. Greyed platforms have no API "
             "credentials on the worker and never post."
         )
 
@@ -1116,6 +1149,7 @@ def _render_pipeline_controls(scope: str) -> None:
         _configured_plats = (
             set(_worker_status["configured"]) if _worker_status is not None else None
         )
+        _img_states = _get_platform_image_states(db)
 
         _PLATFORM_LABELS = {
             "instagram": "Instagram",
@@ -1239,6 +1273,55 @@ def _render_pipeline_controls(scope: str) -> None:
                         pass
                     except Exception:
                         st.error("Failed to queue command.")
+
+            # Images on/off — not offered for Instagram/Facebook, which are
+            # carousel-only: their slides are the post, so there is nothing to
+            # turn off.
+            if _plat in _IMAGE_TOGGLE_PLATFORMS:
+                _images_on = _img_states.get(_plat, True)
+                if _images_on:
+                    if st.button(
+                        "🚫 Text-only posts",
+                        key=f"{scope}_img_off_{_plat}",
+                        use_container_width=True,
+                        help=(
+                            f"Stop generating an image for {_plat_label}. Posts go out as "
+                            "text only and no image is generated, so it also saves the spend."
+                        ),
+                    ):
+                        try:
+                            _queue_command(
+                                f"platform_images|{_plat}|off",
+                                cooldown_key=f"img_{_plat}",
+                            )
+                            st.warning(f"{_plat_label} posts will be text only.")
+                        except RuntimeError:
+                            pass
+                        except Exception:
+                            st.error("Failed to queue command.")
+                else:
+                    st.markdown(
+                        "<div style='background:#F5F5F7;border:1px solid #E8E8ED;"
+                        "border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;"
+                        "color:#6E6E73;margin-bottom:6px'>🚫 Text-only — no images</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        "🖼 Turn images back on",
+                        key=f"{scope}_img_on_{_plat}",
+                        use_container_width=True,
+                        help=f"Generate an image for each new {_plat_label} post again.",
+                    ):
+                        try:
+                            _queue_command(
+                                f"platform_images|{_plat}|on",
+                                cooldown_key=f"img_{_plat}",
+                            )
+                            st.success(f"{_plat_label} images back on.")
+                        except RuntimeError:
+                            pass
+                        except Exception:
+                            st.error("Failed to queue command.")
 
     # ── Create Content — expanded by default (primary daily use) ─────────────
     with st.expander("📊  Create Content", expanded=True):
