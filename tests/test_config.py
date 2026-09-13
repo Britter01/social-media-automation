@@ -58,3 +58,33 @@ def test_default_pillars_and_platforms():
         "Review",
     ]
     assert "tiktok" in cfg.platforms
+
+
+def test_retired_imagen_model_env_is_ignored(monkeypatch):
+    """IMAGEN_MODEL still points at a shut-down model in deployed envs.
+
+    Google retired the imagen-* models on 17 Aug 2026, so honouring that
+    variable would 404 on every image. It must be ignored, not obeyed.
+    """
+    from core.config import _DEFAULT_IMAGE_MODEL, _image_model_from_env
+
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    monkeypatch.setenv("IMAGEN_MODEL", "imagen-4.0-generate-001")
+    assert _image_model_from_env() == _DEFAULT_IMAGE_MODEL
+
+
+def test_explicit_image_model_wins(monkeypatch):
+    from core.config import _image_model_from_env
+
+    monkeypatch.setenv("IMAGE_MODEL", "gemini-3.1-flash-image")
+    monkeypatch.setenv("IMAGEN_MODEL", "imagen-4.0-generate-001")
+    assert _image_model_from_env() == "gemini-3.1-flash-image"
+
+
+def test_non_imagen_legacy_value_is_respected(monkeypatch):
+    # Only imagen-* is retired; anything else the user set is still their choice.
+    from core.config import _image_model_from_env
+
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    monkeypatch.setenv("IMAGEN_MODEL", "gemini-2.5-flash-image")
+    assert _image_model_from_env() == "gemini-2.5-flash-image"

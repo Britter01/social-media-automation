@@ -52,6 +52,34 @@ def _get_int(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+_DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
+
+
+def _image_model_from_env() -> str:
+    """Resolve the image model, ignoring the retired Imagen setting.
+
+    ``IMAGEN_MODEL`` is still set in deployed environments and points at an
+    ``imagen-*`` model. Google shut those down on 17 Aug 2026, so honouring it
+    would 404 on every image. Anything ``imagen-*`` is therefore ignored with a
+    warning rather than silently breaking generation; set ``IMAGE_MODEL`` to
+    override deliberately.
+    """
+    explicit = _get("IMAGE_MODEL")
+    if explicit:
+        return explicit
+
+    legacy = _get("IMAGEN_MODEL")
+    if legacy and legacy.startswith("imagen-"):
+        logging.getLogger(__name__).warning(
+            "IMAGEN_MODEL=%s names a retired Imagen model (shut down 17 Aug 2026) — "
+            "ignoring it and using %s. Remove IMAGEN_MODEL, or set IMAGE_MODEL to override.",
+            legacy,
+            _DEFAULT_IMAGE_MODEL,
+        )
+        return _DEFAULT_IMAGE_MODEL
+    return legacy or _DEFAULT_IMAGE_MODEL
+
+
 @dataclass(frozen=True)
 class Config:
     """Strongly-typed view over the environment."""
@@ -72,9 +100,12 @@ class Config:
     model_creative: str = "claude-sonnet-4-6"
     model_fast: str = "claude-haiku-4-5"
 
-    # --- Google Imagen 4 Standard (thumbnails) --------------------------
+    # --- Google image generation (thumbnails) ---------------------------
+    # The Imagen models (imagen-*) were shut down on 17 Aug 2026 and now 404.
+    # Their replacement is a Gemini image model called through generate_content
+    # rather than the retired generate_images method.
     google_api_key: str | None = None
-    imagen_model: str = "imagen-4.0-generate-001"
+    image_model: str = "gemini-2.5-flash-image"
 
     # --- Higgsfield (image generation — primary when key is present) ----
     # API key format is "KEY_ID:KEY_SECRET" copied from platform.higgsfield.ai.
@@ -227,7 +258,7 @@ class Config:
             model_creative=_get("ANTHROPIC_MODEL_CREATIVE", "claude-sonnet-4-6"),
             model_fast=_get("ANTHROPIC_MODEL_FAST", "claude-haiku-4-5"),
             google_api_key=_get("GOOGLE_API_KEY"),
-            imagen_model=_get("IMAGEN_MODEL", "imagen-4.0-generate-001"),
+            image_model=_image_model_from_env(),
             higgsfield_api_key=_get("HIGGSFIELD_API_KEY"),
             heygen_api_key=_get("HEYGEN_API_KEY"),
             heygen_voice_id=_get("HEYGEN_VOICE_ID"),

@@ -13,8 +13,15 @@ from core.models import Post, PostStatus
 
 
 def _imagen_response(image_bytes=b"\x89PNG-fake"):
-    image = SimpleNamespace(image=SimpleNamespace(image_bytes=image_bytes))
-    return SimpleNamespace(generated_images=[image])
+    """A generate_content response carrying one inline image part.
+
+    Mirrors the Gemini image shape: candidates → content → parts →
+    inline_data.data. The retired Imagen generate_images shape (generated_images
+    → image.image_bytes) no longer exists.
+    """
+    part = SimpleNamespace(inline_data=SimpleNamespace(data=image_bytes))
+    candidate = SimpleNamespace(content=SimpleNamespace(parts=[part]), finish_reason="STOP")
+    return SimpleNamespace(candidates=[candidate], prompt_feedback=None)
 
 
 def _no_storage_cfg(base_config):
@@ -26,7 +33,7 @@ def test_generate_writes_local_file(base_config, tmp_path):
     cfg = _no_storage_cfg(base_config)
     agent = ThumbnailAgent(cfg, output_dir=str(tmp_path))
     agent._imagen_client = MagicMock()
-    agent._imagen_client.models.generate_images.return_value = _imagen_response()
+    agent._imagen_client.models.generate_content.return_value = _imagen_response()
 
     post = Post(pillar="Tech Lifestyle", platform="instagram", topic="desk setup")
     # Patch the overlay so PIL never tries to decode the fake bytes.
@@ -41,7 +48,7 @@ def test_generate_writes_local_file(base_config, tmp_path):
 def test_generate_uses_storage_when_available(base_config, tmp_path):
     agent = ThumbnailAgent(_no_storage_cfg(base_config), output_dir=str(tmp_path))
     agent._imagen_client = MagicMock()
-    agent._imagen_client.models.generate_images.return_value = _imagen_response()
+    agent._imagen_client.models.generate_content.return_value = _imagen_response()
     # Simulate a configured storage backend.
     agent._storage = MagicMock()
     agent._storage.upload.return_value = "https://cdn.example/thumb.png"
@@ -60,7 +67,9 @@ def test_generate_uses_storage_when_available(base_config, tmp_path):
 def test_generate_raises_when_no_images(base_config, tmp_path):
     agent = ThumbnailAgent(_no_storage_cfg(base_config), output_dir=str(tmp_path))
     agent._imagen_client = MagicMock()
-    agent._imagen_client.models.generate_images.return_value = SimpleNamespace(generated_images=[])
+    agent._imagen_client.models.generate_content.return_value = SimpleNamespace(
+        candidates=[], prompt_feedback=None
+    )
     post = Post(pillar="Review", platform="instagram")
     with pytest.raises(RuntimeError):
         agent.generate(post)

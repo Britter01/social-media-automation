@@ -612,7 +612,7 @@ def _get_worker_platform_status() -> dict | None:
 
 # Bump in lock-step with scheduler/cron.py _WORKER_VERSION. If the worker
 # reports an older version, it hasn't been redeployed with the latest code.
-_EXPECTED_WORKER_VERSION = "2026-07-16.16"
+_EXPECTED_WORKER_VERSION = "2026-07-16.17"
 
 
 @st.cache_data(ttl=60)

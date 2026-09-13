@@ -709,20 +709,16 @@ class InfographicAgent:
     ) -> bytes:
         if not self._cfg.google_api_key:
             raise RuntimeError("Neither Higgsfield nor Google API key configured")
-        from google import genai
-        from google.genai import types
+
+        from core.gemini_image import generate_image
 
         prompt = prompt or self._bg_prompt(topic, aspect_ratio)
-        client = genai.Client(api_key=self._cfg.google_api_key)
-        resp = client.models.generate_images(
-            model=self._cfg.imagen_model,
+        return generate_image(
+            api_key=self._cfg.google_api_key,
+            model=self._cfg.image_model,
             prompt=prompt,
-            config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio=aspect_ratio),
+            aspect_ratio=aspect_ratio,
         )
-        images = getattr(resp, "generated_images", None) or []
-        if not images:
-            raise RuntimeError("Imagen returned no images")
-        return images[0].image.image_bytes
 
     # ── Card composition ───────────────────────────────────────────────────────
 
@@ -2093,19 +2089,14 @@ class InfographicAgent:
             raise RuntimeError(
                 "No image generation service available (Higgsfield failed, no GOOGLE_API_KEY)"
             )  # noqa: E501
-        from google import genai
-        from google.genai import types
+        from core.gemini_image import generate_image
 
-        client = genai.Client(api_key=self._cfg.google_api_key)
-        resp = client.models.generate_images(
-            model=self._cfg.imagen_model,
+        return generate_image(
+            api_key=self._cfg.google_api_key,
+            model=self._cfg.image_model,
             prompt=prompt,
-            config=types.GenerateImagesConfig(number_of_images=1, aspect_ratio="1:1"),
+            aspect_ratio="1:1",
         )
-        images = getattr(resp, "generated_images", None) or []
-        if not images:
-            raise RuntimeError("Imagen spot: returned no images")
-        return images[0].image.image_bytes
 
     def _create_rich_posts(
         self,

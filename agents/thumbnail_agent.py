@@ -285,24 +285,23 @@ class ThumbnailAgent:
     # ── Imagen provider ───────────────────────────────────────────────────────
 
     def _generate_imagen(self, post: Post, prompt: str) -> bytes:
-        """Generate an image via Google Imagen."""
-        if not self._imagen_client:
-            raise RuntimeError("Imagen client not available (GOOGLE_API_KEY not set)")
-        from google.genai import types
+        """Generate an image via the Google Gemini image model.
 
-        aspect_ratio = _ASPECT_RATIO.get(post.platform, "1:1")
-        response = self._imagen_client.models.generate_images(
-            model=self._cfg.imagen_model,
+        Uses ``generate_content`` with an IMAGE response modality. The older
+        ``generate_images`` (Imagen) path is gone twice over: Google shut the
+        imagen-* models down on 17 Aug 2026, and google-genai 2.x made the
+        method Vertex-only. This path works on a plain GOOGLE_API_KEY.
+        """
+        if not self._imagen_client:
+            raise RuntimeError("Image client not available (GOOGLE_API_KEY not set)")
+        from core.gemini_image import generate_image_with_client
+
+        return generate_image_with_client(
+            client=self._imagen_client,
+            model=self._cfg.image_model,
             prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=aspect_ratio,
-            ),
+            aspect_ratio=_ASPECT_RATIO.get(post.platform, "1:1"),
         )
-        images = getattr(response, "generated_images", None) or []
-        if not images:
-            raise RuntimeError("Imagen returned no images (possibly blocked by safety filters)")
-        return images[0].image.image_bytes
 
     # ── Public API ────────────────────────────────────────────────────────────
 

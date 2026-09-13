@@ -158,8 +158,16 @@ def test_generate_raw_falls_back_to_imagen_when_higgsfield_fails(monkeypatch, ag
     monkeypatch.setattr(ThumbnailAgent, "_visual_scene", lambda self, post: "scene")
     agent._imagen_client = SimpleNamespace(
         models=SimpleNamespace(
-            generate_images=lambda **kw: SimpleNamespace(
-                generated_images=[SimpleNamespace(image=SimpleNamespace(image_bytes=b"IMAGEN"))]
+            generate_content=lambda **kw: SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        content=SimpleNamespace(
+                            parts=[SimpleNamespace(inline_data=SimpleNamespace(data=b"IMAGEN"))]
+                        ),
+                        finish_reason="STOP",
+                    )
+                ],
+                prompt_feedback=None,
             )
         )
     )
