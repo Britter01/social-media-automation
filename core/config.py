@@ -189,6 +189,14 @@ class Config:
     dry_run: bool = True  # Safe default — must explicitly set DRY_RUN=false to post live
     log_level: str = "INFO"
     posts_per_run: int = 1
+    # Hard ceiling of one post per platform per day, regardless of how many
+    # posts the pipeline produces. Without it, a batch of topics approved in
+    # one go all get slots on the same day — on 15 Sept 2026 that put three
+    # LinkedIn posts out between 07:04 and 16:36. POSTS_PER_RUN assumes the
+    # volume spreads across platforms, which stops being true the moment all
+    # but one are paused. Set ONE_POST_PER_PLATFORM_PER_DAY=false for the old
+    # behaviour (bounded only by the slot table — up to 3/day on LinkedIn).
+    one_post_per_platform_per_day: bool = True
     # Only generate a carousel for 1 in every N Instagram/Facebook posts.
     # Carousels cost ~6–8× more than standard posts (Imagen × slides).
     carousel_every_n: int = 3
@@ -294,6 +302,7 @@ class Config:
             dry_run=_get_bool("DRY_RUN", True),
             log_level=_get("LOG_LEVEL", "INFO"),
             posts_per_run=_get_int("POSTS_PER_RUN", 1),
+            one_post_per_platform_per_day=_get_bool("ONE_POST_PER_PLATFORM_PER_DAY", True),
             carousel_every_n=_get_int("CAROUSEL_EVERY_N", 3),
             min_topic_relevance=_get_int("MIN_TOPIC_RELEVANCE", 70),
             topics_per_run=_get_int("TOPICS_PER_RUN", 3),

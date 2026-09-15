@@ -73,6 +73,18 @@ class SchedulerAgent:
         self._cfg = cfg
         self._tz = ZoneInfo(cfg.timezone)
 
+    def _respect_daily_cap(self, after: datetime | None) -> datetime | None:
+        """Move ``after`` to the end of its own day so the next slot is tomorrow.
+
+        Returns ``after`` untouched when the cap is off, or when there is no
+        previous slot to chain from (the first post of a platform is free to
+        take today's next window).
+        """
+        if after is None or not self._cfg.one_post_per_platform_per_day:
+            return after
+        local = after.astimezone(self._tz)
+        return local.replace(hour=23, minute=59, second=59, microsecond=0)
+
     def next_slot(self, platform: str, after: datetime | None = None) -> datetime:
         """Return the next optimal posting time strictly after ``after``.
 
@@ -111,7 +123,15 @@ class SchedulerAgent:
         return best
 
     def schedule(self, post: Post, after: datetime | None = None) -> Post:
-        """Assign ``post.scheduled_time`` and mark it scheduled, in place."""
+        """Assign ``post.scheduled_time`` and mark it scheduled, in place.
+
+        ``after`` is the platform's last taken slot — seeded from the queue and
+        chained across a run — so pushing it to the end of its own day is all
+        that's needed to guarantee one post per platform per day. Enforced here
+        rather than in :meth:`next_slot` so the slot table stays a pure
+        best-time lookup, and so every caller gets the cap without changes.
+        """
+        after = self._respect_daily_cap(after)
         post.scheduled_time = self.next_slot(post.platform, after)
         post.mark(PostStatus.SCHEDULED)
         logger.info(

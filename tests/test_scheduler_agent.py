@@ -60,3 +60,71 @@ def test_chained_scheduling_caps_posts_per_day_per_platform(base_config):
         assert max(per_day.values()) <= max_per_day, (
             f"{platform}: {max(per_day.values())} on one day exceeds {max_per_day}"
         )
+
+
+def _brand_tz(cfg):
+    from zoneinfo import ZoneInfo
+
+    return ZoneInfo(cfg.timezone)
+
+
+def test_batch_of_posts_lands_on_separate_days(base_config):
+    """The 15 Sept 2026 incident: three approved topics, three posts, one day.
+
+    Chaining each post after the previous one used to walk the platform's
+    within-day slot table (LinkedIn 08:00 / 12:00 / 17:30), so a batch all
+    published the same day. Each must now fall on its own day.
+    """
+    import dataclasses
+
+    from agents.scheduler_agent import SchedulerAgent
+    from core.models import Post
+
+    cfg = dataclasses.replace(base_config, one_post_per_platform_per_day=True)
+    agent = SchedulerAgent(cfg)
+
+    last = None
+    days = []
+    for _ in range(3):
+        post = Post(pillar="AI Guide", platform="linkedin")
+        agent.schedule(post, after=last)
+        last = post.scheduled_time
+        days.append(post.scheduled_time.astimezone(_brand_tz(cfg)).date())
+
+    assert len(set(days)) == 3, f"expected 3 distinct days, got {days}"
+    assert days == sorted(days)
+
+
+def test_cap_can_be_turned_off(base_config):
+    import dataclasses
+
+    from agents.scheduler_agent import SchedulerAgent
+    from core.models import Post
+
+    cfg = dataclasses.replace(base_config, one_post_per_platform_per_day=False)
+    agent = SchedulerAgent(cfg)
+
+    last = None
+    days = []
+    for _ in range(3):
+        post = Post(pillar="AI Guide", platform="linkedin")
+        agent.schedule(post, after=last)
+        last = post.scheduled_time
+        days.append(post.scheduled_time.astimezone(_brand_tz(cfg)).date())
+
+    # Old behaviour: the within-day slot table is free to cluster them.
+    assert len(set(days)) < 3
+
+
+def test_first_post_still_takes_todays_next_slot(base_config):
+    """The cap must not delay a platform that has nothing queued."""
+    import dataclasses
+
+    from agents.scheduler_agent import SchedulerAgent
+    from core.models import Post
+
+    cfg = dataclasses.replace(base_config, one_post_per_platform_per_day=True)
+    agent = SchedulerAgent(cfg)
+    post = Post(pillar="AI Guide", platform="linkedin")
+    agent.schedule(post, after=None)
+    assert post.scheduled_time is not None
