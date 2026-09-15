@@ -238,6 +238,29 @@ class Database:
                 pass
         return latest
 
+    def scheduled_counts_by_platform(self) -> dict[str, int]:
+        """Return how many posts are queued ('scheduled') per platform.
+
+        Lets the approved-topic pipeline top the queue up to a target depth
+        instead of converting every approved topic at once. Fails to an empty
+        dict, which reads as "queue empty" — the caller then converts up to the
+        target depth rather than everything, so a Supabase blip can't reopen
+        the floodgates.
+        """
+        try:
+            resp = self._client.table(_TABLE).select("platform").eq("status", "scheduled").execute()
+            rows = resp.data or []
+        except Exception:
+            logger.exception("Failed to count scheduled posts by platform")
+            return {}
+
+        counts: dict[str, int] = {}
+        for row in rows:
+            plat = row.get("platform") or ""
+            if plat:
+                counts[plat] = counts.get(plat, 0) + 1
+        return counts
+
     def due_for_publishing(self, now: datetime | None = None, limit: int = 50) -> list[Post]:
         """Return scheduled posts whose ``scheduled_time`` has passed."""
         now = now or datetime.now(UTC)

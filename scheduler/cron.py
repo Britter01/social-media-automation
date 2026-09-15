@@ -236,8 +236,27 @@ def run_approved_pipeline() -> None:
         logger.exception("Approved-topic pipeline could not initialise; skipping run")
         return
 
+    # Approving a topic means "this is worth posting", not "post it now".
+    # Converting every approved topic at once is what put three LinkedIn posts
+    # out in a day on 15 Sept: a batch approved together became a batch of
+    # posts. Top the queue up to a target depth instead, so the backlog drains
+    # at the posting rate however many topics get approved in one sitting.
+    _depth = max(1, config.queue_depth_per_platform)
+    _blocked = _content_paused_platforms()
+    _counts = db.scheduled_counts_by_platform()
+    _headroom = sum(
+        max(0, _depth - _counts.get(p, 0)) for p in config.platforms if p not in _blocked
+    )
+    if _headroom <= 0:
+        logger.info(
+            "Approved-topic pipeline: every active platform already has %d post(s) queued; "
+            "leaving approved topics in the backlog",
+            _depth,
+        )
+        return
+
     try:
-        posts = research_agent.generate_for_approved()
+        posts = research_agent.generate_for_approved(limit=_headroom)
     except Exception:
         logger.exception("Approved-topic pipeline failed; skipping run")
         return
@@ -1764,7 +1783,7 @@ _TELEGRAM_MODE_PLATFORMS = ("facebook", "twitter", "linkedin")
 _PLATFORM_STATUS_PATH = "config/platform_status.json"
 # Bump when shipping worker changes the dashboard should be able to confirm are
 # live. Surfaced in the sidebar so a stale (un-redeployed) worker is obvious.
-_WORKER_VERSION = "2026-07-16.20"
+_WORKER_VERSION = "2026-07-16.21"
 _NEWS_PLATFORMS_PATH = "config/news_platforms"
 _NEWS_PLATFORM_CHOICES = ("instagram", "facebook", "both")
 

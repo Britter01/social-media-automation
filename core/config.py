@@ -197,6 +197,11 @@ class Config:
     # but one are paused. Set ONE_POST_PER_PLATFORM_PER_DAY=false for the old
     # behaviour (bounded only by the slot table — up to 3/day on LinkedIn).
     one_post_per_platform_per_day: bool = True
+    # How many posts to keep queued per platform. Approving topics fills a
+    # backlog; the pipeline draws from it to this depth and no further, so
+    # approving 13 topics no longer creates 13 posts in one go. At one post
+    # per platform per day this is also "days of runway".
+    queue_depth_per_platform: int = 3
     # Only generate a carousel for 1 in every N Instagram/Facebook posts.
     # Carousels cost ~6–8× more than standard posts (Imagen × slides).
     carousel_every_n: int = 3
@@ -303,6 +308,7 @@ class Config:
             log_level=_get("LOG_LEVEL", "INFO"),
             posts_per_run=_get_int("POSTS_PER_RUN", 1),
             one_post_per_platform_per_day=_get_bool("ONE_POST_PER_PLATFORM_PER_DAY", True),
+            queue_depth_per_platform=_get_int("QUEUE_DEPTH_PER_PLATFORM", 3),
             carousel_every_n=_get_int("CAROUSEL_EVERY_N", 3),
             min_topic_relevance=_get_int("MIN_TOPIC_RELEVANCE", 70),
             topics_per_run=_get_int("TOPICS_PER_RUN", 3),

@@ -101,3 +101,36 @@ def test_due_for_publishing_queries_scheduled(base_config):
     db._client.table.return_value.select.return_value.eq.assert_called_with(
         "status", PostStatus.SCHEDULED.value
     )
+
+
+def test_scheduled_counts_by_platform_groups_correctly():
+    """Feeds the queue-depth cap, so miscounting would re-open the floodgates."""
+    from unittest.mock import MagicMock
+
+    from core.database import Database
+
+    db = Database.__new__(Database)
+    client = MagicMock()
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {"platform": "linkedin"},
+            {"platform": "linkedin"},
+            {"platform": "instagram"},
+            {"platform": ""},
+        ]
+    )
+    db._client = client
+    assert db.scheduled_counts_by_platform() == {"linkedin": 2, "instagram": 1}
+
+
+def test_scheduled_counts_fails_to_empty_not_exception():
+    """A Supabase blip must not crash the pipeline; empty reads as 'queue empty'."""
+    from unittest.mock import MagicMock
+
+    from core.database import Database
+
+    db = Database.__new__(Database)
+    client = MagicMock()
+    client.table.side_effect = RuntimeError("supabase down")
+    db._client = client
+    assert db.scheduled_counts_by_platform() == {}
